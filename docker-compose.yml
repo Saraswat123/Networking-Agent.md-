@@ -1,0 +1,17 @@
+services:
+  networking-agent:
+    build: .
+    container_name: networking-agent
+    env_file:
+      - .env
+    environment:
+      - NETWORKING_DB=/data/networking-agent.db
+    volumes:
+      - db_data:/data
+    stdin_open: true   # required for MCP stdio transport
+    tty: false
+    restart: unless-stopped
+
+volumes:
+  db_data:
+    driver: local
