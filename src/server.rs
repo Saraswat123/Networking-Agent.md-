@@ -195,6 +195,25 @@ impl NetworkingServer {
         }
     }
 
+    #[tool(description = "Find GitHub team members for a YC company. Searches GitHub for the company org by name/website domain, returns up to 10 team members with full profiles (email, bio, repos, followers). Use this after get_yc_companies to find the actual people to reach out to.")]
+    async fn get_yc_company_team(
+        &self,
+        Parameters(params): Parameters<YCCompanyTeamParams>,
+    ) -> String {
+        match github::find_company_team(
+            &self.http_client,
+            &self.github_token,
+            &params.company_name,
+            params.website.as_deref(),
+            params.github_org.as_deref(),
+        )
+        .await
+        {
+            Ok(result) => serde_json::to_string_pretty(&result).unwrap_or_else(|e| e.to_string()),
+            Err(e) => format!("Error: {}", e),
+        }
+    }
+
     #[tool(description = "Update outreach status for a prospect. Status values: new, researched, github_engaged, x_engaged, emailed, replied, meeting_scheduled.")]
     async fn update_prospect_status(
         &self,
@@ -213,6 +232,16 @@ impl NetworkingServer {
             Err(e) => format!("Error: {}", e),
         }
     }
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct YCCompanyTeamParams {
+    /// YC company name e.g. "Mentra", "Red Barn Robotics"
+    pub company_name: String,
+    /// Company website e.g. "https://mentra.glass" — used to find GitHub org by domain
+    pub website: Option<String>,
+    /// Direct GitHub org login if already known e.g. "mentra-ar" — skips search if provided
+    pub github_org: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
