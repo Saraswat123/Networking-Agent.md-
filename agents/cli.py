@@ -19,6 +19,7 @@ from rich.panel import Panel
 
 import cv_agent
 import outreach_agent
+import prospect_bridge
 
 app = typer.Typer(help="Networking Agent — CV + Outreach automation")
 console = Console()
@@ -145,6 +146,30 @@ def pipeline(
         outreach_agent.print_outreach(result)
 
     console.print(f"\n[green]Done.[/green] {len(prospects)} outreach packages saved to agents/output/emails/")
+
+
+@app.command()
+def bridge(
+    status: str = typer.Option("new", help="Prospect status to process: new | researched"),
+    limit: int = typer.Option(20, help="Max prospects to process in one run"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview without generating outreach or writing to DB"),
+    skip_enrichment: bool = typer.Option(False, "--skip-enrichment", help="Skip Hunter.io + WebReveal calls"),
+):
+    """
+    Read prospects from Rust SQLite DB → enrich → generate outreach automatically.
+
+    Requires: ANTHROPIC_API_KEY, NETWORKING_DB (or default ~/networking-agent.db)
+    Optional: HUNTER_API_KEY for email discovery
+    """
+    require_api_key()
+    if dry_run:
+        console.print("\n[yellow]DRY RUN — no DB writes, no API calls for outreach[/yellow]\n")
+    prospect_bridge.run_bridge(
+        status_filter=status,
+        limit=limit,
+        dry_run=dry_run,
+        skip_enrichment=skip_enrichment,
+    )
 
 
 if __name__ == "__main__":
