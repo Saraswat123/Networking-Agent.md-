@@ -42,5 +42,25 @@ pub async fn init_pool(db_path: &str) -> Result<SqlitePool> {
     .execute(&pool)
     .await?;
 
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS tool_call_log (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            tool_name           TEXT NOT NULL,
+            input_preview       TEXT,
+            output_len          INTEGER,
+            output_fingerprint  INTEGER,
+            duration_ms         INTEGER,
+            status              TEXT DEFAULT 'ok',
+            pii_detected        TEXT DEFAULT '',
+            ts                  DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_tool_log_tool ON tool_call_log(tool_name);
+        CREATE INDEX IF NOT EXISTS idx_tool_log_ts   ON tool_call_log(ts);
+        "#,
+    )
+    .execute(&pool)
+    .await?;
+
     Ok(pool)
 }

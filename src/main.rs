@@ -1,3 +1,4 @@
+mod compliance;
 mod db;
 mod server;
 mod tools;
@@ -17,7 +18,9 @@ async fn main() -> Result<()> {
     });
 
     let pool = db::init_pool(&db_path).await?;
-    let server = NetworkingServer::new(pool, github_token, hunter_api_key);
+    let compliance = compliance::ComplianceLayer::new();
+    compliance.apply_tool_limits().await;
+    let server = NetworkingServer::new(pool, github_token, hunter_api_key, compliance);
 
     let service = server.serve(stdio()).await?;
     service.waiting().await?;

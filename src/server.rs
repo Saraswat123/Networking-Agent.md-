@@ -8,6 +8,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
+use crate::compliance::ComplianceLayer;
 use crate::tools::{email_finder, github, jobs, tech_stack, yc};
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -65,16 +66,18 @@ pub struct NetworkingServer {
     db: SqlitePool,
     github_token: String,
     hunter_api_key: String,
+    compliance: ComplianceLayer,
 }
 
 impl NetworkingServer {
-    pub fn new(db: SqlitePool, github_token: String, hunter_api_key: String) -> Self {
+    pub fn new(db: SqlitePool, github_token: String, hunter_api_key: String, compliance: ComplianceLayer) -> Self {
         Self {
             tool_router: Self::tool_router(),
             http_client: Client::new(),
             db,
             github_token,
             hunter_api_key,
+            compliance,
         }
     }
 }
@@ -86,64 +89,75 @@ impl NetworkingServer {
         &self,
         Parameters(params): Parameters<SearchUsersParams>,
     ) -> String {
-        match github::search_users(
-            &self.http_client,
-            &self.github_token,
-            &params.query,
-            &params.location,
-        )
-        .await
-        {
+        if let Err(e) = self.compliance.rate_limiter.check("search_github_users").await { return e; }
+        let t = self.compliance.audit.start();
+        let input = format!("query={} location={}", params.query, params.location);
+        let result = match github::search_users(&self.http_client, &self.github_token, &params.query, &params.location).await {
             Ok(users) => serde_json::to_string_pretty(&users).unwrap_or_else(|e| e.to_string()),
             Err(e) => format!("Error: {}", e),
-        }
+        };
+        let clean = self.compliance.pii.redact(&input);
+        let pii = self.compliance.pii.detect_types(&result);
+        self.compliance.audit.log(&self.db, "search_github_users", &clean, &result, t, &pii).await;
+        result
     }
 
     #[tool(description = "Get all public members of a GitHub organization. Good for finding engineers at target companies.")]
     async fn get_org_members(&self, Parameters(params): Parameters<OrgMembersParams>) -> String {
-        match github::get_org_members(&self.http_client, &self.github_token, &params.org).await {
+        if let Err(e) = self.compliance.rate_limiter.check("get_org_members").await { return e; }
+        let t = self.compliance.audit.start();
+        let result = match github::get_org_members(&self.http_client, &self.github_token, &params.org).await {
             Ok(users) => serde_json::to_string_pretty(&users).unwrap_or_else(|e| e.to_string()),
             Err(e) => format!("Error: {}", e),
-        }
+        };
+        let pii = self.compliance.pii.detect_types(&result);
+        self.compliance.audit.log(&self.db, "get_org_members", &params.org, &result, t, &pii).await;
+        result
     }
 
     #[tool(description = "Find open issues in a GitHub repo tagged 'good first issue' or 'help wanted'. These are warm entry points.")]
     async fn find_open_issues(&self, Parameters(params): Parameters<OpenIssuesParams>) -> String {
-        match github::find_open_issues(
-            &self.http_client,
-            &self.github_token,
-            &params.owner,
-            &params.repo,
-        )
-        .await
-        {
+        if let Err(e) = self.compliance.rate_limiter.check("find_open_issues").await { return e; }
+        let t = self.compliance.audit.start();
+        let input = format!("{}/{}", params.owner, params.repo);
+        let result = match github::find_open_issues(&self.http_client, &self.github_token, &params.owner, &params.repo).await {
             Ok(issues) => serde_json::to_string_pretty(&issues).unwrap_or_else(|e| e.to_string()),
             Err(e) => format!("Error: {}", e),
-        }
+        };
+        self.compliance.audit.log(&self.db, "find_open_issues", &input, &result, t, &[]).await;
+        result
     }
 
     #[tool(description = "Get YC companies from a specific batch e.g. W25, S24, W24. Returns name, description, website, location, tags.")]
     async fn get_yc_companies(&self, Parameters(params): Parameters<YCBatchParams>) -> String {
-        match yc::scrape_yc_companies(&self.http_client, &params.batch).await {
-            Ok(companies) => {
-                serde_json::to_string_pretty(&companies).unwrap_or_else(|e| e.to_string())
-            }
+        if let Err(e) = self.compliance.rate_limiter.check("get_yc_companies").await { return e; }
+        let t = self.compliance.audit.start();
+        let result = match yc::scrape_yc_companies(&self.http_client, &params.batch).await {
+            Ok(companies) => serde_json::to_string_pretty(&companies).unwrap_or_else(|e| e.to_string()),
             Err(e) => format!("Error: {}", e),
-        }
+        };
+        self.compliance.audit.log(&self.db, "get_yc_companies", &params.batch, &result, t, &[]).await;
+        result
     }
 
     #[tool(description = "Search YC companies by keyword and location. Works globally: USA, Singapore, London, NYC, SF, etc.")]
     async fn search_yc_companies(&self, Parameters(params): Parameters<YCSearchParams>) -> String {
-        match yc::search_yc_companies(&self.http_client, &params.query, &params.location).await {
-            Ok(companies) => {
-                serde_json::to_string_pretty(&companies).unwrap_or_else(|e| e.to_string())
-            }
+        if let Err(e) = self.compliance.rate_limiter.check("search_yc_companies").await { return e; }
+        let t = self.compliance.audit.start();
+        let input = format!("query={} location={}", params.query, params.location);
+        let result = match yc::search_yc_companies(&self.http_client, &params.query, &params.location).await {
+            Ok(companies) => serde_json::to_string_pretty(&companies).unwrap_or_else(|e| e.to_string()),
             Err(e) => format!("Error: {}", e),
-        }
+        };
+        self.compliance.audit.log(&self.db, "search_yc_companies", &input, &result, t, &[]).await;
+        result
     }
 
     #[tool(description = "Save a prospect to the local database for tracking outreach.")]
     async fn save_prospect(&self, Parameters(params): Parameters<SaveProspectParams>) -> String {
+        if let Err(e) = self.compliance.rate_limiter.check("save_prospect").await { return e; }
+        let t = self.compliance.audit.start();
+        let input = self.compliance.pii.redact(&format!("name={} company={:?}", params.name, params.company));
         let result = sqlx::query(
             r#"
             INSERT INTO prospects (name, github, email, company, role, location, notes, source)
@@ -166,35 +180,34 @@ impl NetworkingServer {
         .execute(&self.db)
         .await;
 
-        match result {
+        let out = match result {
             Ok(r) => format!("Saved prospect '{}' (row id: {})", params.name, r.last_insert_rowid()),
             Err(e) => format!("Error saving prospect: {}", e),
-        }
+        };
+        self.compliance.audit.log(&self.db, "save_prospect", &input, &out, t, &[]).await;
+        out
     }
 
     #[tool(description = "List all saved prospects from the database.")]
     async fn list_prospects(&self) -> String {
+        if let Err(e) = self.compliance.rate_limiter.check("list_prospects").await { return e; }
+        let t = self.compliance.audit.start();
         let rows: Result<Vec<serde_json::Value>, _> = sqlx::query_as::<_, (i64, String, Option<String>, Option<String>, Option<String>, Option<String>, String)>(
             "SELECT id, name, github, email, company, role, outreach_status FROM prospects ORDER BY created_at DESC"
         )
         .fetch_all(&self.db)
         .await
         .map(|rows| rows.into_iter().map(|(id, name, github, email, company, role, status)| {
-            serde_json::json!({
-                "id": id,
-                "name": name,
-                "github": github,
-                "email": email,
-                "company": company,
-                "role": role,
-                "status": status,
-            })
+            serde_json::json!({ "id": id, "name": name, "github": github, "email": email, "company": company, "role": role, "status": status })
         }).collect());
 
-        match rows {
+        let result = match rows {
             Ok(data) => serde_json::to_string_pretty(&data).unwrap_or_else(|e| e.to_string()),
             Err(e) => format!("Error: {}", e),
-        }
+        };
+        let pii = self.compliance.pii.detect_types(&result);
+        self.compliance.audit.log(&self.db, "list_prospects", "all", &result, t, &pii).await;
+        result
     }
 
     #[tool(description = "Find GitHub team members for a YC company. Searches GitHub for the company org by name/website domain, returns up to 10 team members with full profiles (email, bio, repos, followers). Use this after get_yc_companies to find the actual people to reach out to.")]
@@ -202,18 +215,15 @@ impl NetworkingServer {
         &self,
         Parameters(params): Parameters<YCCompanyTeamParams>,
     ) -> String {
-        match github::find_company_team(
-            &self.http_client,
-            &self.github_token,
-            &params.company_name,
-            params.website.as_deref(),
-            params.github_org.as_deref(),
-        )
-        .await
-        {
+        if let Err(e) = self.compliance.rate_limiter.check("get_yc_company_team").await { return e; }
+        let t = self.compliance.audit.start();
+        let result = match github::find_company_team(&self.http_client, &self.github_token, &params.company_name, params.website.as_deref(), params.github_org.as_deref()).await {
             Ok(result) => serde_json::to_string_pretty(&result).unwrap_or_else(|e| e.to_string()),
             Err(e) => format!("Error: {}", e),
-        }
+        };
+        let pii = self.compliance.pii.detect_types(&result);
+        self.compliance.audit.log(&self.db, "get_yc_company_team", &params.company_name, &result, t, &pii).await;
+        result
     }
 
     #[tool(description = "Update outreach status for a prospect. Status values: new, researched, github_engaged, x_engaged, emailed, replied, meeting_scheduled.")]
@@ -221,18 +231,20 @@ impl NetworkingServer {
         &self,
         Parameters(params): Parameters<UpdateStatusParams>,
     ) -> String {
-        let result = sqlx::query(
-            "UPDATE prospects SET outreach_status = ? WHERE id = ?"
-        )
-        .bind(&params.status)
-        .bind(params.id)
-        .execute(&self.db)
-        .await;
-
-        match result {
+        if let Err(e) = self.compliance.rate_limiter.check("update_prospect_status").await { return e; }
+        let t = self.compliance.audit.start();
+        let input = format!("id={} status={}", params.id, params.status);
+        let result = sqlx::query("UPDATE prospects SET outreach_status = ? WHERE id = ?")
+            .bind(&params.status)
+            .bind(params.id)
+            .execute(&self.db)
+            .await;
+        let out = match result {
             Ok(_) => format!("Updated prospect {} status to '{}'", params.id, params.status),
             Err(e) => format!("Error: {}", e),
-        }
+        };
+        self.compliance.audit.log(&self.db, "update_prospect_status", &input, &out, t, &[]).await;
+        out
     }
 
     #[tool(description = "Detect tech stack used by a company website. Uses WebReveal API (free, live detection, no cache). Pass the full website URL e.g. 'https://stripe.com'. Returns technologies grouped by category (framework, analytics, CDN, language, etc).")]
@@ -240,10 +252,14 @@ impl NetworkingServer {
         &self,
         Parameters(params): Parameters<TechStackParams>,
     ) -> String {
-        match tech_stack::lookup_tech_stack(&self.http_client, &params.url).await {
+        if let Err(e) = self.compliance.rate_limiter.check("lookup_tech_stack").await { return e; }
+        let t = self.compliance.audit.start();
+        let result = match tech_stack::lookup_tech_stack(&self.http_client, &params.url).await {
             Ok(result) => serde_json::to_string_pretty(&result).unwrap_or_else(|e| e.to_string()),
             Err(e) => format!("Error: {}", e),
-        }
+        };
+        self.compliance.audit.log(&self.db, "lookup_tech_stack", &params.url, &result, t, &[]).await;
+        result
     }
 
     #[tool(description = "Find email addresses for a company domain using Hunter.io. Returns emails with name, role, confidence score. Requires HUNTER_API_KEY env var (free tier: 25 searches/mo at hunter.io). Pass domain without protocol e.g. 'stripe.com'.")]
@@ -251,17 +267,15 @@ impl NetworkingServer {
         &self,
         Parameters(params): Parameters<FindEmailsParams>,
     ) -> String {
-        match email_finder::find_emails(
-            &self.http_client,
-            &self.hunter_api_key,
-            &params.domain,
-            params.limit.unwrap_or(10),
-        )
-        .await
-        {
+        if let Err(e) = self.compliance.rate_limiter.check("find_company_emails").await { return e; }
+        let t = self.compliance.audit.start();
+        let result = match email_finder::find_emails(&self.http_client, &self.hunter_api_key, &params.domain, params.limit.unwrap_or(10)).await {
             Ok(result) => serde_json::to_string_pretty(&result).unwrap_or_else(|e| e.to_string()),
             Err(e) => format!("Error: {}", e),
-        }
+        };
+        let pii = self.compliance.pii.detect_types(&result);
+        self.compliance.audit.log(&self.db, "find_company_emails", &params.domain, &result, t, &pii).await;
+        result
     }
 
     #[tool(description = "Search remote job listings from RemoteOK. Free, no API key needed. Filter by tags e.g. 'rust', 'typescript,senior', 'python,ml'. Leave tags empty for all remote jobs. Returns title, company, url, salary, description snippet.")]
@@ -269,12 +283,16 @@ impl NetworkingServer {
         &self,
         Parameters(params): Parameters<SearchJobsParams>,
     ) -> String {
+        if let Err(e) = self.compliance.rate_limiter.check("search_jobs").await { return e; }
+        let t = self.compliance.audit.start();
         let tags = params.tags.as_deref().unwrap_or("");
         let limit = params.limit.unwrap_or(20);
-        match jobs::search_remoteok(&self.http_client, tags, limit).await {
+        let result = match jobs::search_remoteok(&self.http_client, tags, limit).await {
             Ok(result) => serde_json::to_string_pretty(&result).unwrap_or_else(|e| e.to_string()),
             Err(e) => format!("Error: {}", e),
-        }
+        };
+        self.compliance.audit.log(&self.db, "search_jobs", tags, &result, t, &[]).await;
+        result
     }
 }
 
