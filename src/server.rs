@@ -8,7 +8,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
-use crate::tools::{github, yc};
+use crate::tools::{email_finder, github, jobs, tech_stack, yc};
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct SearchUsersParams {
@@ -64,15 +64,17 @@ pub struct NetworkingServer {
     http_client: Client,
     db: SqlitePool,
     github_token: String,
+    hunter_api_key: String,
 }
 
 impl NetworkingServer {
-    pub fn new(db: SqlitePool, github_token: String) -> Self {
+    pub fn new(db: SqlitePool, github_token: String, hunter_api_key: String) -> Self {
         Self {
             tool_router: Self::tool_router(),
             http_client: Client::new(),
             db,
             github_token,
+            hunter_api_key,
         }
     }
 }
@@ -232,6 +234,48 @@ impl NetworkingServer {
             Err(e) => format!("Error: {}", e),
         }
     }
+
+    #[tool(description = "Detect tech stack used by a company website. Uses WebReveal API (free, live detection, no cache). Pass the full website URL e.g. 'https://stripe.com'. Returns technologies grouped by category (framework, analytics, CDN, language, etc).")]
+    async fn lookup_tech_stack(
+        &self,
+        Parameters(params): Parameters<TechStackParams>,
+    ) -> String {
+        match tech_stack::lookup_tech_stack(&self.http_client, &params.url).await {
+            Ok(result) => serde_json::to_string_pretty(&result).unwrap_or_else(|e| e.to_string()),
+            Err(e) => format!("Error: {}", e),
+        }
+    }
+
+    #[tool(description = "Find email addresses for a company domain using Hunter.io. Returns emails with name, role, confidence score. Requires HUNTER_API_KEY env var (free tier: 25 searches/mo at hunter.io). Pass domain without protocol e.g. 'stripe.com'.")]
+    async fn find_company_emails(
+        &self,
+        Parameters(params): Parameters<FindEmailsParams>,
+    ) -> String {
+        match email_finder::find_emails(
+            &self.http_client,
+            &self.hunter_api_key,
+            &params.domain,
+            params.limit.unwrap_or(10),
+        )
+        .await
+        {
+            Ok(result) => serde_json::to_string_pretty(&result).unwrap_or_else(|e| e.to_string()),
+            Err(e) => format!("Error: {}", e),
+        }
+    }
+
+    #[tool(description = "Search remote job listings from RemoteOK. Free, no API key needed. Filter by tags e.g. 'rust', 'typescript,senior', 'python,ml'. Leave tags empty for all remote jobs. Returns title, company, url, salary, description snippet.")]
+    async fn search_jobs(
+        &self,
+        Parameters(params): Parameters<SearchJobsParams>,
+    ) -> String {
+        let tags = params.tags.as_deref().unwrap_or("");
+        let limit = params.limit.unwrap_or(20);
+        match jobs::search_remoteok(&self.http_client, tags, limit).await {
+            Ok(result) => serde_json::to_string_pretty(&result).unwrap_or_else(|e| e.to_string()),
+            Err(e) => format!("Error: {}", e),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -250,6 +294,28 @@ pub struct UpdateStatusParams {
     pub id: i64,
     /// new | researched | github_engaged | x_engaged | emailed | replied | meeting_scheduled
     pub status: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct TechStackParams {
+    /// Full website URL e.g. "https://stripe.com"
+    pub url: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct FindEmailsParams {
+    /// Company domain without protocol e.g. "stripe.com"
+    pub domain: String,
+    /// Max emails to return (default 10, max 100)
+    pub limit: Option<u32>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct SearchJobsParams {
+    /// Comma-separated tags e.g. "rust", "typescript,senior", "python,ml" — leave empty for all
+    pub tags: Option<String>,
+    /// Max results to return (default 20)
+    pub limit: Option<usize>,
 }
 
 #[tool_handler]
