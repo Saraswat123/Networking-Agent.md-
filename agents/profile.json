@@ -1,0 +1,97 @@
+{
+  "name": "Saraswat Das",
+  "email": "saraswatdas94@gmail.com",
+  "location": "India",
+  "linkedin": "https://linkedin.com/in/saraswatdas",
+  "github": "https://github.com/Saraswat123",
+  "title": "Rust Systems Engineer — AI Agent Infrastructure",
+  "summary": "I build the performance layer for AI agents. Most agent infrastructure runs on Python — GC pauses, slow serialization, 50-200ms overhead per tool call. At 1000 tool calls in an agentic loop, that's 3 minutes of dead time. I build in Rust: zero-cost abstractions, no garbage collector, deterministic memory. Production MCP server. 11 live tools. Zero runtime surprises.",
+  "positioning": {
+    "core_identity": "Performance-obsessed systems engineer at the intersection of Rust and AI agent infrastructure.",
+    "wedge": "Python MCP = slow. Rust MCP = fast. Most teams haven't made this switch yet. I already shipped it.",
+    "machine_statement": "I don't add features until the system is fast. Speed is the feature.",
+    "not": "AI/ML researcher, full-stack web dev, prompt engineer",
+    "yes": "zero-latency agent infra, protocol performance, systems-level AI tooling, Rust async runtime"
+  },
+  "skills": {
+    "systems": ["Rust", "tokio (async runtime)", "rmcp", "MCP protocol", "reqwest", "serde", "sqlx"],
+    "ai_infra": ["Claude API (claude-opus-4-8)", "Anthropic SDK", "MCP server design", "multi-agent orchestration", "LLM tool use"],
+    "backend": ["Python", "Node.js", "Express", "FastAPI", "MongoDB", "SQLite", "Docker"],
+    "frontend": ["React", "TypeScript", "JavaScript"],
+    "protocols": ["MCP (Model Context Protocol)", "HTTP/REST", "WebSockets", "stdio transport"]
+  },
+  "experience": [
+    {
+      "role": "Rust MCP Engineer",
+      "company": "AITS Group",
+      "duration": "2023 - Present",
+      "highlights": [
+        "Architected production rmcp MCP server in Rust — 11 live tools across GitHub search, YC API, Hunter.io email finding, WebReveal tech stack detection, RemoteOK job scraping",
+        "Built multi-agent Python layer (CV Agent + Outreach Agent) using claude-opus-4-8 with adaptive thinking for signal-based personalization at scale",
+        "Built AI-powered paper scan system using Claude Vision API — tick mark detection + handwriting OCR across 11 parameters per sheet"
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "name": "Networking Agent — Production Rust MCP Server",
+      "tech": ["Rust", "rmcp", "tokio", "sqlx", "reqwest", "serde"],
+      "description": "MCP server with 11 tools: GitHub user/org search, YC company data, team discovery, tech stack detection (WebReveal), email finding (Hunter.io), remote job search (RemoteOK), SQLite prospect pipeline. Designed for Claude to use as an autonomous networking agent.",
+      "github": "https://github.com/Saraswat123/networking-agent",
+      "signal": "One of the first production Rust MCP servers publicly available. MCP is the protocol that Anthropic, Google DeepMind, and OpenAI are standardizing on for agent tool use."
+    },
+    {
+      "name": "Student Assessment Portal — Claude Vision Integration",
+      "tech": ["React", "Node.js", "MongoDB", "Claude Vision API (claude-opus-4-8)"],
+      "description": "Full-stack assessment system with AI paper scan detection. POST /api/scan-paper endpoint sends scanned answer sheets to Claude Vision, extracts MCQ tick marks and handwritten answers with confidence scoring across all question types.",
+      "github": "https://github.com/Saraswat123/Rysen-Learning-System"
+    }
+  ],
+  "education": [
+    {
+      "degree": "B.Tech / Engineering",
+      "institution": "Fill in your university",
+      "year": "Fill in graduation year"
+    }
+  ],
+  "target_companies": {
+    "tier_1_direct_fit": [
+      "Anthropic (MCP team, developer tools)",
+      "Zed Industries (Rust-native, AI editor, MCP integrations)",
+      "Cloudflare (Rust-heavy, AI Workers, agent infra)",
+      "1Password (Rust, security, MCP adoption)",
+      "Turso / ChiselStrike (Rust + SQLite, edge infra)"
+    ],
+    "tier_2_yc_agent_companies": [
+      "YC companies building agent products (W25, S25 batches)",
+      "AI developer tooling startups needing MCP server engineers",
+      "Companies in modelcontextprotocol ecosystem"
+    ],
+    "tier_3_rust_adjacent": [
+      "Discord (Rust infra)",
+      "Figma (Rust WASM)",
+      "Databricks / Delta Lake (Rust data infra)",
+      "TigerBeetle (Rust financial systems)"
+    ]
+  },
+  "target_roles": [
+    "MCP Infrastructure Engineer",
+    "Agent Infrastructure Engineer",
+    "Rust Backend Engineer (AI/LLM tooling)",
+    "Protocol Engineer",
+    "Developer Tools Engineer (Rust)"
+  ],
+  "outreach_angles": {
+    "performance": "Python MCP servers add 50-200ms per tool call. Rust doesn't. At agent scale, that gap is your product's speed. I already built and shipped the Rust version.",
+    "rare_combo": "Most AI engineers can't write systems code. Most systems engineers don't understand LLM tool use. I work at both layers simultaneously.",
+    "shipped": "Not a side project. Production rmcp server, 11 live tools, stdio transport, async tokio runtime, SQLite persistence. Running now.",
+    "timing": "MCP is 6 months old. The teams that build the fastest MCP infrastructure in the next 12 months will own the agent tooling space. I started 6 months ago."
+  },
+  "cv_opening_lines": {
+    "default": "I build fast AI agent infrastructure in Rust — because at agent scale, every millisecond compounds and Python's garbage collector doesn't care about your SLA.",
+    "for_rust_companies": "Rust engineer focused on zero-latency AI agent tooling. Production MCP server, 11 tools, tokio async, zero GC pauses.",
+    "for_ai_companies": "I ship the performance layer that makes AI agents fast. Most teams run Python MCP servers. Mine runs in Rust — deterministic, zero-overhead, production-ready.",
+    "for_infra_companies": "Systems engineer who crossed over into AI infrastructure. I build MCP servers in Rust because the protocol deserves a runtime that won't pause mid-tool-call."
+  },
+  "open_to": ["remote", "hybrid", "full-time", "contract"]
+}
