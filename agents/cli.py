@@ -18,6 +18,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 
 import cv_agent
+import orchestrator
 import outreach_agent
 import prospect_bridge
 
@@ -146,6 +147,76 @@ def pipeline(
         outreach_agent.print_outreach(result)
 
     console.print(f"\n[green]Done.[/green] {len(prospects)} outreach packages saved to agents/output/emails/")
+
+
+@app.command()
+def run(
+    query: str = typer.Option(..., help="Search query e.g. 'CTO', 'Rust engineer', 'AI infrastructure'"),
+    location: str = typer.Option("", help="Location filter e.g. 'Singapore', 'San Francisco', '' for global"),
+    mode: str = typer.Option("both", help="Discovery source: github | yc | both"),
+    limit: int = typer.Option(10, help="Max prospects to discover per source"),
+    no_bridge: bool = typer.Option(False, "--no-bridge", help="Skip outreach generation, just discover"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Discover + preview without generating outreach"),
+):
+    """
+    Full pipeline: discover prospects → save to DB → enrich → generate outreach.
+
+    Examples:
+      python cli.py run --query "CTO" --location "Singapore" --mode yc
+      python cli.py run --query "Rust engineer" --location "" --mode github --limit 5
+      python cli.py run --query "AI infrastructure" --mode both --dry-run
+    """
+    require_api_key()
+    console.print(f"\n[bold]Pipeline:[/bold] {mode.upper()} discovery → enrich → outreach")
+    console.print(f"Query: '{query}'  Location: '{location or 'global'}'  Limit: {limit}/source\n")
+    orchestrator.run(
+        mode=mode,
+        query=query,
+        location=location,
+        limit=limit,
+        run_bridge=not no_bridge,
+        dry_run=dry_run,
+    )
+
+
+@app.command()
+def dashboard():
+    """Show pipeline status — prospect counts by stage."""
+    import sqlite3
+    from pathlib import Path
+
+    db_path = Path(os.environ.get("NETWORKING_DB", str(Path.home() / "networking-agent.db")))
+    if not db_path.exists():
+        console.print(f"[red]DB not found:[/red] {db_path}")
+        raise typer.Exit(1)
+
+    db = sqlite3.connect(str(db_path))
+    rows = db.execute(
+        "SELECT outreach_status, COUNT(*) as n FROM prospects GROUP BY outreach_status ORDER BY n DESC"
+    ).fetchall()
+    total = db.execute("SELECT COUNT(*) FROM prospects").fetchone()[0]
+    recent = db.execute(
+        "SELECT name, company, outreach_status, created_at FROM prospects ORDER BY created_at DESC LIMIT 10"
+    ).fetchall()
+    db.close()
+
+    console.print("\n[bold]── Pipeline Dashboard ──[/bold]\n")
+    console.print(f"Total prospects: [bold]{total}[/bold]\n")
+
+    status_colors = {
+        "new": "white", "researched": "yellow", "github_engaged": "cyan",
+        "x_engaged": "blue", "emailed": "green", "replied": "bright_green",
+        "meeting_scheduled": "bright_magenta",
+    }
+    for status, count in rows:
+        bar = "█" * min(count, 40)
+        color = status_colors.get(status, "white")
+        console.print(f"  [{color}]{status:<20}[/{color}] {bar} {count}")
+
+    console.print("\n[bold]Recent prospects:[/bold]")
+    for name, company, status, created in recent:
+        console.print(f"  {created[:10]}  {(name or '?'):<25} @ {(company or '?'):<20}  [{status}]")
+    console.print()
 
 
 @app.command()
