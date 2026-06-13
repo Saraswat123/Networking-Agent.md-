@@ -21,6 +21,7 @@ import cv_agent
 import orchestrator
 import outreach_agent
 import prospect_bridge
+import research_agent
 
 app = typer.Typer(help="Networking Agent — CV + Outreach automation")
 console = Console()
@@ -147,6 +148,50 @@ def pipeline(
         outreach_agent.print_outreach(result)
 
     console.print(f"\n[green]Done.[/green] {len(prospects)} outreach packages saved to agents/output/emails/")
+
+
+@app.command()
+def research(
+    status: str = typer.Option("new", help="Prospect status to research: new | researched"),
+    limit: int = typer.Option(10, help="Max companies to research"),
+    concurrency: int = typer.Option(3, help="Parallel Claude agents (3 agents × N companies)"),
+    min_score: int = typer.Option(5, help="Skip companies scoring below this (0-10)"),
+):
+    """
+    Multi-agent company research: job scanner + collaboration scanner + shortlist scorer.
+
+    Runs 3 Claude agents in parallel per company. Outputs:
+      PATH A: open position found → apply + outreach
+      PATH B: GitHub entry point → contribute first → then outreach
+      PATH C: no opening → pure cold outreach
+
+    Results saved to agents/output/research/<company>.json
+    """
+    require_api_key()
+
+    import sqlite3
+    db_path = Path(os.environ.get("NETWORKING_DB", str(Path.home() / "networking-agent.db")))
+    if not db_path.exists():
+        console.print(f"[red]DB not found:[/red] {db_path}")
+        raise typer.Exit(1)
+
+    db = sqlite3.connect(str(db_path))
+    db.row_factory = sqlite3.Row
+    rows = db.execute(
+        "SELECT id, name, github, email, company, role, location, notes, source FROM prospects WHERE outreach_status = ? ORDER BY created_at DESC LIMIT ?",
+        (status, limit),
+    ).fetchall()
+    db.close()
+
+    prospects = [dict(r) for r in rows]
+    console.print(f"\n[bold]Researching {len(prospects)} companies[/bold] — 3 parallel agents each\n")
+
+    results = research_agent.research_batch(prospects, concurrency=concurrency)
+
+    # Filter by min_score
+    results = [r for r in results if r.get("shortlist", {}).get("shortlist_score", 0) >= min_score or r["pathway"].get("pathway") == research_agent.PATH_A]
+
+    research_agent.print_research_report(results)
 
 
 @app.command()
