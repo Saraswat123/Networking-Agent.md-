@@ -48,8 +48,20 @@ def cv(
     jd: Path = typer.Option(..., help="Path to job description text file"),
     company: str = typer.Option(..., help="Company name e.g. 'Stripe'"),
     role: str = typer.Option(..., help="Role title e.g. 'Backend Engineer'"),
+    angle: str = typer.Option("", help="Force CV angle: rust_mcp | data_engineering | protocol_engineer (auto-detect if omitted)"),
 ):
-    """Generate tailored CV for a job posting."""
+    """
+    Generate tailored CV for a job posting.
+
+    Auto-detects role type from JD and picks the right CV angle:
+      rust_mcp          → Rust MCP/Agent Infrastructure Engineer
+      data_engineering  → AI & Data Engineer (Python, PostgreSQL, Power BI)
+      protocol_engineer → Protocol & Systems Engineer (distributed, async Rust)
+
+    Examples:
+      python cli.py cv --jd stripe_jd.txt --company "Stripe" --role "Backend Engineer"
+      python cli.py cv --jd cloudflare_jd.txt --company "Cloudflare" --role "Rust Engineer" --angle rust_mcp
+    """
     require_api_key()
     if not jd.exists():
         console.print(f"[red]File not found:[/red] {jd}")
@@ -57,7 +69,7 @@ def cv(
 
     jd_text = jd.read_text()
     console.print(f"\n[bold]Generating CV for:[/bold] {role} @ {company}\n")
-    cv_agent.generate_cv(jd_text, company, role)
+    cv_agent.generate_cv(jd_text, company, role, angle_override=angle or None)
 
 
 @app.command()

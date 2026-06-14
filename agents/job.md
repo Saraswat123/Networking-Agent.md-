@@ -61,16 +61,40 @@ Used by:
 
 ## Opportunity Scoring (built into profile.json)
 
-Score each job against `profile.json → target_roles`:
+Score each job against `profile.json → cv_profiles → <angle> → target_roles`.
+Three scoring tables — one per CV angle:
 
+### rust_mcp angle
 ```
 +3  Rust is required or in stack
 +2  MCP / protocol engineering mentioned
 +2  Agent infrastructure / LLM tooling
 +1  Remote-first
-+1  Seed / Series A / Series B (early = more impact)
--2  Requires 5+ years of [language we don't know]
--3  FAANG / Big Tech generic role (low signal-based leverage)
++1  Seed / Series A / Series B
+-2  Requires 5+ years of language we don't have
+-3  FAANG generic role (no signal leverage)
+```
+
+### data_engineering angle
+```
++3  Python + SQL required
++2  Claude/LLM integration mentioned
++2  Data pipeline / ETL / analytics
++1  Power BI / dashboards
++1  Full-stack (React + backend)
+-2  Requires data science/ML research (not engineering)
+-3  Pure frontend no backend data work
+```
+
+### protocol_engineer angle
+```
++3  Protocol design / distributed systems required
++2  Rust in stack
++2  async, p2p, consensus, gRPC mentioned
++1  Remote-first
++1  Infra/platform stage company
+-2  No systems programming component
+-3  Consumer product company (no protocol need)
 ```
 
 High score → apply + cold outreach to hiring manager  

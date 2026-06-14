@@ -1,17 +1,23 @@
 # CV Agent
 
-**Role:** JD-to-CV tailoring, skill reordering, bullet point rewriting  
+**Role:** JD-to-CV tailoring with multi-angle profile system  
 **Runtime:** Python (`cv_agent.py`)  
 **Model:** `claude-opus-4-8` with adaptive thinking + streaming  
 **Triggered by:** `python cli.py cv` or internally by Job Agent
 
 ---
 
-## Responsibility
+## Three CV Angles
 
-Takes a job description + candidate profile → outputs a tailored CV in Markdown. Not generic — every CV is rewritten to match the exact language and priorities of the target role.
+`profile.json` contains three complete CV profiles. CV Agent auto-detects which one to use from the JD.
 
-Core principle: **one CV per application**. The base profile (`profile.json`) is the raw material. The CV Agent shapes it for each specific job.
+| Angle | Title | Use When |
+|---|---|---|
+| `rust_mcp` | Rust Systems Engineer — AI Agent Infrastructure | JD asks for Rust, MCP, agent infra, devtools |
+| `data_engineering` | AI & Data Engineer — LLM Automation + Full-Stack | JD asks for Python, SQL, data pipelines, analytics, full-stack |
+| `protocol_engineer` | Protocol & Systems Engineer — Rust + Distributed Infra | JD asks for protocol design, distributed systems, p2p, async Rust |
+
+Override: `--angle rust_mcp | data_engineering | protocol_engineer`
 
 ---
 
@@ -21,114 +27,116 @@ Core principle: **one CV per application**. The base profile (`profile.json`) is
 client.messages.stream(
     model="claude-opus-4-8",
     max_tokens=3000,
-    thinking={"type": "adaptive"},   # reasons before writing
+    thinking={"type": "adaptive"},
     messages=[{"role": "user", "content": prompt}]
 )
 ```
 
-Adaptive thinking matters here — Claude decides how much reasoning to apply. For complex JDs (multiple required skills, unclear seniority), it thinks longer. For simple ones, it writes fast.
+Adaptive thinking — Claude reasons longer for complex JDs before writing. Streaming renders live.
 
-Streaming: CV renders to terminal live as it generates. Saves to `output/cvs/` on completion.
+---
+
+## Auto-Detection Logic (`pick_profile_angle`)
+
+1. `analyze_jd()` extracts `role_type`, `stack`, `must_have`
+2. Score rust/data/protocol signals across extracted terms
+3. Pick angle with highest match score
+
+```
+rust signals:     rust, tokio, mcp, rmcp, async, wasm, systems   → rust_mcp
+data signals:     python, sql, postgresql, pandas, power bi, node, react → data_engineering
+protocol signals: protocol, distributed, p2p, grpc, kafka, libp2p → protocol_engineer
+```
+
+Terminal output shows which angle was chosen and why.
 
 ---
 
 ## Two Functions
 
-### `generate_cv(jd_text, company_name, role_title) → str`
+### `generate_cv(jd_text, company, role, angle_override?) → str`
 
-Full tailored CV as Markdown.
+Full tailored CV as Markdown. What Claude does:
 
-**What Claude does (from prompt):**
-1. Extract from JD: must-haves, nice-to-haves, responsibilities, culture signals
-2. Open with 2-sentence summary — technical, specific, references this exact role
-3. Reorder skills: put what JD emphasizes most at top
-4. Rewrite experience bullets using JD language (no lying — just emphasis shift)
-5. Lead with most relevant project
-6. End with one-line "Fit summary"
-7. Keep it 1-page equivalent — every line earns its place
+1. Reads selected angle's `skills_priority`, `experience_bullets`, `opening_lines`
+2. Opens with 2-sentence technical summary — angle-specific, JD-adapted
+3. Reorders skills: JD must-haves first
+4. Rewrites experience bullets in JD language with numbers
+5. Shows most relevant projects for that angle
+6. Ends with one-line fit summary
 
-**CV opening line variants** (from `profile.json → cv_opening_lines`):
-
-| Company Type | Opening |
-|---|---|
-| Rust companies | "Rust engineer focused on zero-latency AI agent tooling. Production MCP server, 11 tools, tokio async, zero GC pauses." |
-| AI companies | "I ship the performance layer that makes AI agents fast. Most teams run Python MCP servers. Mine runs in Rust — deterministic, zero-overhead, production-ready." |
-| Infra companies | "Systems engineer who crossed over into AI infrastructure. I build MCP servers in Rust because the protocol deserves a runtime that won't pause mid-tool-call." |
-| Default | "I build fast AI agent infrastructure in Rust — because at agent scale, every millisecond compounds and Python's garbage collector doesn't care about your SLA." |
-
----
+Output saved: `agents/output/cvs/cv_<company>_<role>_<angle>.md`
 
 ### `analyze_jd(jd_text) → dict`
 
-Quick structured parse of any JD. No streaming — returns JSON immediately.
-
 ```json
 {
-  "role_type": "backend",
-  "seniority": "senior",
-  "must_have": ["Rust", "async", "distributed systems"],
-  "nice_to_have": ["MCP", "WASM"],
-  "stack": ["Rust", "Postgres", "Kafka"],
-  "hiring_signals": ["Series B", "remote-first"],
-  "culture_tags": ["open-source", "research"]
+  "role_type": "rust | protocol | data | backend | fullstack | ...",
+  "seniority": "junior | mid | senior | staff | lead",
+  "must_have": ["Rust", "async", "MCP"],
+  "nice_to_have": ["WASM", "Kubernetes"],
+  "stack": ["Rust", "Postgres", "Docker"],
+  "hiring_signals": ["Series B", "10-person team"],
+  "culture_tags": ["remote-first", "open-source"],
+  "company_type": "rust_company | ai_company | infra_company | data_company | ..."
 }
 ```
 
-Used by:
-- CV Agent itself (context for generation)
-- Outreach Agent (picks right positioning angle)
-- Job Agent (opportunity scoring)
+Used by: CV Agent (angle selection), Outreach Agent (positioning pick), Job Agent (scoring).
 
 ---
 
-## Profile Input (`profile.json`)
+## Opening Lines Per Angle
 
-Key fields CV Agent reads:
+### rust_mcp
+| Company Type | Opening |
+|---|---|
+| Default | "I build fast AI agent infrastructure in Rust — because at agent scale, every millisecond compounds and Python's garbage collector doesn't care about your SLA." |
+| Rust company | "Rust engineer focused on zero-latency AI agent tooling. Production MCP server, 11 tools, tokio async, zero GC pauses." |
+| AI company | "I ship the performance layer that makes AI agents fast. Most teams run Python MCP servers. Mine runs in Rust — deterministic, zero-overhead, production-ready." |
+| Protocol company | "Protocol engineer who ships in Rust. Built production MCP server, rate limiter, PII filter, audit layer — the full compliance stack for agent tool use." |
 
-```json
-{
-  "name", "email", "linkedin", "github",
-  "title",          → used in CV header
-  "summary",        → starting point for role-specific rewrite
-  "skills",         → reordered per JD emphasis
-  "experience",     → bullet points rewritten with JD language
-  "projects",       → most relevant shown first
-  "cv_opening_lines" → pre-written variants by company type
-}
+### data_engineering
+| Company Type | Opening |
+|---|---|
+| Default | "I build AI systems that automate data workflows — from API integration pipelines to LLM-powered analysis layers that turn raw data into structured, actionable output." |
+| Data company | "Data engineer who builds AI automation on top of existing data stacks. PostgreSQL, Power BI, 15 API integrations, Claude-powered analysis — all production." |
+| AI company | "I use Claude API to build real automation: document extraction, structured data analysis, multi-agent pipelines. Not demos — deployed systems replacing manual workflows." |
+
+### protocol_engineer
+| Company Type | Opening |
+|---|---|
+| Default | "Protocol engineer who ships in Rust. I work at the wire level — transport design, serialization, async dispatch, rate limiting. Production MCP server live." |
+| Infra company | "Systems engineer with production Rust protocol work. Built MCP server, sliding-window rate limiter, PII pipeline — the full compliance stack for agent tool use at scale." |
+
+---
+
+## Usage
+
+```bash
+# Auto-detect angle from JD
+python cli.py cv --jd stripe_jd.txt --company "Stripe" --role "Backend Engineer"
+
+# Force specific angle
+python cli.py cv --jd cloudflare_jd.txt --company "Cloudflare" --role "Rust Engineer" --angle rust_mcp
+python cli.py cv --jd dbt_jd.txt --company "dbt Labs" --role "Data Engineer" --angle data_engineering
+python cli.py cv --jd fly_jd.txt --company "Fly.io" --role "Protocol Engineer" --angle protocol_engineer
+
+# Just analyze JD (no CV)
+python cli.py analyze --jd path/to/jd.txt
 ```
-
-**Fill in before first use:**
-- `education → institution + year`
-- `linkedin → actual URL`
 
 ---
 
 ## Output
 
-Saved to: `agents/output/cvs/cv_<company>_<role>.md`
+`agents/output/cvs/cv_<company>_<role>_<angle>.md`
 
-Example: `cv_stripe_backend-engineer.md`
+Example: `cv_cloudflare_rust-engineer_rust_mcp.md`
 
-Format: pure Markdown — paste into Notion, convert to PDF via `pandoc`, or copy to Google Docs.
-
-**To convert to PDF:**
+Convert to PDF:
 ```bash
-pip install pandoc
-pandoc agents/output/cvs/cv_stripe_backend-engineer.md -o cv_stripe.pdf
-```
-
----
-
-## Configuration
-
-```bash
-export ANTHROPIC_API_KEY=sk-ant-...
-
-# Generate CV
-python cli.py cv --jd path/to/jd.txt --company "Stripe" --role "Backend Engineer"
-
-# Just analyze JD (no CV generated)
-python cli.py analyze --jd path/to/jd.txt
+pandoc agents/output/cvs/cv_cloudflare_rust-engineer_rust_mcp.md -o cv_cloudflare.pdf
 ```
 
 ---
@@ -138,33 +146,29 @@ python cli.py analyze --jd path/to/jd.txt
 **Before (generic):**
 ```
 Skills: Rust, Python, JavaScript, React, Node.js, Docker, MongoDB
+Experience: Built multi-agent networking system in Rust
+```
+
+**After — rust_mcp angle for "Rust Protocol Engineer at FinTech":**
+```
+Skills: Rust (tokio, serde, sqlx, rmcp) · MCP protocol (JSON-RPC 2.0 over stdio) ·
+        zero-GC async runtime · PII detection pipeline · sliding-window rate limiter
 
 Experience:
-- Built multi-agent networking system in Rust
-- Developed student assessment portal
-- Architected MCP server
+- Designed production MCP server in Rust: 11 tool handlers, rmcp macro-based dispatch,
+  tokio multi-thread runtime — deterministic memory, zero GC pauses under financial data load
+- Built sliding-window rate limiter: tokio::sync::Mutex + VecDeque<Instant>, per-tool limits,
+  O(1) eviction — 5/min Hunter.io, 60/min DB writes, 20/min WebReveal
 ```
 
-**After (tailored for "Rust Protocol Engineer at a FinTech"):**
-```
-Skills: Rust (tokio, serde, sqlx, rmcp) · async systems · MCP protocol ·
-        zero-GC runtime design · Python · Node.js
-
-Experience:
-- Architected production rmcp MCP server processing 11 concurrent tool types;
-  zero-copy serde deserialization, tokio multi-thread runtime, deterministic
-  memory — no GC pauses under financial data load
-- Built Hunter.io + WebReveal enrichment pipeline: 50ms avg latency per
-  enrichment call, rate-limited to protect API quotas
-```
-
-Same facts. Different emphasis. Matches what the JD is actually asking for.
+Same facts. Different angle. Matches exactly what the JD asks for.
 
 ---
 
-## Future: CV Agent v2
+## Updating Profile
 
-- PDF output directly (weasyprint or puppeteer)
-- Multiple format variants: technical resume vs executive summary
-- ATS optimization: keyword density analysis against JD requirements
-- Version tracking: `cv_stripe_v1.md`, `cv_stripe_v2.md` with diff
+Edit `agents/profile.json → cv_profiles → <angle>`:
+- `skills_priority` — reorder to change emphasis
+- `experience_bullets` — add new accomplishments
+- `opening_lines` — add new company type variants
+- `target_roles` / `target_companies` — adjust Job Agent scoring

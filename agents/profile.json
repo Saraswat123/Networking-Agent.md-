@@ -1,52 +1,11 @@
 {
   "name": "Saraswat Das",
   "email": "saraswatdas94@gmail.com",
-  "location": "India",
+  "location": "India (Remote)",
   "linkedin": "https://linkedin.com/in/saraswatdas",
   "github": "https://github.com/Saraswat123",
-  "title": "Rust Systems Engineer — AI Agent Infrastructure",
-  "summary": "I build the performance layer for AI agents. Most agent infrastructure runs on Python — GC pauses, slow serialization, 50-200ms overhead per tool call. At 1000 tool calls in an agentic loop, that's 3 minutes of dead time. I build in Rust: zero-cost abstractions, no garbage collector, deterministic memory. Production MCP server. 11 live tools. Zero runtime surprises.",
-  "positioning": {
-    "core_identity": "Performance-obsessed systems engineer at the intersection of Rust and AI agent infrastructure.",
-    "wedge": "Python MCP = slow. Rust MCP = fast. Most teams haven't made this switch yet. I already shipped it.",
-    "machine_statement": "I don't add features until the system is fast. Speed is the feature.",
-    "not": "AI/ML researcher, full-stack web dev, prompt engineer",
-    "yes": "zero-latency agent infra, protocol performance, systems-level AI tooling, Rust async runtime"
-  },
-  "skills": {
-    "systems": ["Rust", "tokio (async runtime)", "rmcp", "MCP protocol", "reqwest", "serde", "sqlx"],
-    "ai_infra": ["Claude API (claude-opus-4-8)", "Anthropic SDK", "MCP server design", "multi-agent orchestration", "LLM tool use"],
-    "backend": ["Python", "Node.js", "Express", "FastAPI", "MongoDB", "SQLite", "Docker"],
-    "frontend": ["React", "TypeScript", "JavaScript"],
-    "protocols": ["MCP (Model Context Protocol)", "HTTP/REST", "WebSockets", "stdio transport"]
-  },
-  "experience": [
-    {
-      "role": "Rust MCP Engineer",
-      "company": "AITS Group",
-      "duration": "2023 - Present",
-      "highlights": [
-        "Architected production rmcp MCP server in Rust — 11 live tools across GitHub search, YC API, Hunter.io email finding, WebReveal tech stack detection, RemoteOK job scraping",
-        "Built multi-agent Python layer (CV Agent + Outreach Agent) using claude-opus-4-8 with adaptive thinking for signal-based personalization at scale",
-        "Built AI-powered paper scan system using Claude Vision API — tick mark detection + handwriting OCR across 11 parameters per sheet"
-      ]
-    }
-  ],
-  "projects": [
-    {
-      "name": "Networking Agent — Production Rust MCP Server",
-      "tech": ["Rust", "rmcp", "tokio", "sqlx", "reqwest", "serde"],
-      "description": "MCP server with 11 tools: GitHub user/org search, YC company data, team discovery, tech stack detection (WebReveal), email finding (Hunter.io), remote job search (RemoteOK), SQLite prospect pipeline. Designed for Claude to use as an autonomous networking agent.",
-      "github": "https://github.com/Saraswat123/networking-agent",
-      "signal": "One of the first production Rust MCP servers publicly available. MCP is the protocol that Anthropic, Google DeepMind, and OpenAI are standardizing on for agent tool use."
-    },
-    {
-      "name": "Student Assessment Portal — Claude Vision Integration",
-      "tech": ["React", "Node.js", "MongoDB", "Claude Vision API (claude-opus-4-8)"],
-      "description": "Full-stack assessment system with AI paper scan detection. POST /api/scan-paper endpoint sends scanned answer sheets to Claude Vision, extracts MCQ tick marks and handwritten answers with confidence scoring across all question types.",
-      "github": "https://github.com/Saraswat123/Rysen-Learning-System"
-    }
-  ],
+  "open_to": ["remote", "hybrid", "full-time", "contract"],
+
   "education": [
     {
       "degree": "B.Tech / Engineering",
@@ -54,44 +13,198 @@
       "year": "Fill in graduation year"
     }
   ],
-  "target_companies": {
-    "tier_1_direct_fit": [
-      "Anthropic (MCP team, developer tools)",
-      "Zed Industries (Rust-native, AI editor, MCP integrations)",
-      "Cloudflare (Rust-heavy, AI Workers, agent infra)",
-      "1Password (Rust, security, MCP adoption)",
-      "Turso / ChiselStrike (Rust + SQLite, edge infra)"
-    ],
-    "tier_2_yc_agent_companies": [
-      "YC companies building agent products (W25, S25 batches)",
-      "AI developer tooling startups needing MCP server engineers",
-      "Companies in modelcontextprotocol ecosystem"
-    ],
-    "tier_3_rust_adjacent": [
-      "Discord (Rust infra)",
-      "Figma (Rust WASM)",
-      "Databricks / Delta Lake (Rust data infra)",
-      "TigerBeetle (Rust financial systems)"
-    ]
+
+  "_note": "Three CV angles. cv_agent.py picks the right one based on JD role_type.",
+
+  "cv_profiles": {
+
+    "rust_mcp": {
+      "_targets": ["rust", "protocol", "devtools", "agent_infra", "mcp"],
+      "title": "Rust Systems Engineer — AI Agent Infrastructure",
+      "summary": "I build the performance layer for AI agents. Most agent infrastructure runs on Python — GC pauses, slow serialization, 50-200ms overhead per tool call. At 1000 tool calls in an agentic loop, that's 3 minutes of dead time. I build in Rust: zero-cost abstractions, no garbage collector, deterministic memory. Production MCP server. 11 live tools. Zero runtime surprises.",
+      "positioning": {
+        "wedge": "Python MCP = slow. Rust MCP = fast. Most teams haven't made this switch yet. I already shipped it.",
+        "machine_statement": "I don't add features until the system is fast. Speed is the feature."
+      },
+      "skills_priority": [
+        "Rust (tokio, rmcp, serde, sqlx, reqwest)",
+        "MCP Protocol (Model Context Protocol) — JSON-RPC 2.0 over stdio",
+        "Async systems design (multi-threaded, zero-GC)",
+        "Claude API — claude-opus-4-8, adaptive thinking, tool use",
+        "Python (asyncio, aiohttp, FastAPI)",
+        "SQLite / PostgreSQL",
+        "Docker"
+      ],
+      "experience_bullets": [
+        "Architected production rmcp MCP server in Rust — 11 live tools: GitHub user/org search, YC company API, Hunter.io email discovery, WebReveal tech stack detection, RemoteOK job scraping, SQLite prospect pipeline",
+        "Built compliance layer on top of MCP server: sliding-window rate limiter (tokio::sync::Mutex + VecDeque<Instant>), PII detection via compiled Regex (OnceLock), per-call audit log with output fingerprinting",
+        "Built multi-agent Python pipeline (CV Agent + Outreach Agent + Research Agent + Classifier Agent) using claude-opus-4-8 with asyncio.gather() — 3 parallel Claude calls per company, controlled concurrency via asyncio.Semaphore",
+        "Integrated Claude Vision API (claude-opus-4-8) for paper scan detection: MCQ tick mark detection + handwriting OCR across 11 answer parameters per sheet"
+      ],
+      "opening_lines": {
+        "default": "I build fast AI agent infrastructure in Rust — because at agent scale, every millisecond compounds and Python's garbage collector doesn't care about your SLA.",
+        "rust_company": "Rust engineer focused on zero-latency AI agent tooling. Production MCP server, 11 tools, tokio async, zero GC pauses.",
+        "ai_company": "I ship the performance layer that makes AI agents fast. Most teams run Python MCP servers. Mine runs in Rust — deterministic, zero-overhead, production-ready.",
+        "infra_company": "Systems engineer who crossed over into AI infrastructure. I build MCP servers in Rust because the protocol deserves a runtime that won't pause mid-tool-call.",
+        "protocol_company": "Protocol engineer who ships in Rust. Built production MCP server (JSON-RPC 2.0 over stdio), rate limiter, PII filter, audit layer — the full compliance stack for agent tool use."
+      },
+      "target_roles": [
+        "MCP Infrastructure Engineer",
+        "Agent Infrastructure Engineer",
+        "Rust Backend Engineer (AI/LLM tooling)",
+        "Protocol Engineer",
+        "Developer Tools Engineer (Rust)",
+        "AI Platform Engineer"
+      ],
+      "target_companies": {
+        "tier_1": ["Anthropic (MCP team)", "Zed Industries", "Cloudflare Workers AI", "1Password", "Turso"],
+        "tier_2": ["YC agent companies (W25/S25)", "AI developer tooling startups", "modelcontextprotocol ecosystem"],
+        "tier_3": ["Discord (Rust infra)", "Figma (Rust WASM)", "Databricks", "TigerBeetle"]
+      }
+    },
+
+    "data_engineering": {
+      "_targets": ["data", "analytics", "ml", "bi", "etl", "fullstack", "backend"],
+      "title": "AI & Data Engineer — LLM Automation + Full-Stack Systems",
+      "summary": "I build AI-powered data systems that replace manual workflows. PostgreSQL pipelines, Power BI dashboards, LLM-driven automation across 15+ integrated APIs. Most data work stays trapped in Excel — I pull it into automated pipelines with AI analysis at the output layer.",
+      "positioning": {
+        "wedge": "Data work that used to require 3 analysts now runs on one automated pipeline. I build the pipeline.",
+        "machine_statement": "Manual data workflows are just automation waiting to happen."
+      },
+      "skills_priority": [
+        "Python (pandas, asyncio, FastAPI, requests)",
+        "PostgreSQL / SQLite — query optimization, schema design, CRUD pipelines",
+        "Power BI — dashboard design, DAX, data modeling",
+        "Claude API — claude-opus-4-8, document analysis, structured extraction",
+        "REST API integration (15+ APIs: Hunter.io, WebReveal, RemoteOK, GitHub, YC, Companies House)",
+        "Node.js / Express / MongoDB",
+        "React / TypeScript",
+        "Docker"
+      ],
+      "experience_bullets": [
+        "Built AI-powered student assessment portal: React + Node.js + MongoDB full-stack, Claude Vision API integration for automated paper scanning — OCR + MCQ tick mark detection across 11 parameters per sheet, replacing manual marking workflow",
+        "Integrated 15+ APIs into unified data pipeline: GitHub REST v3, YC API, Hunter.io, WebReveal, RemoteOK, UK Companies House — normalized output into SQLite prospect database with enrichment layer",
+        "Built multi-agent AI analysis system in Python: asyncio.gather() parallel Claude calls, structured JSON extraction, automated reporting — reduces manual company research from hours to seconds",
+        "Designed PostgreSQL + Power BI data layer for operational reporting: automated data refresh, DAX measures, dashboard templates for non-technical stakeholders"
+      ],
+      "opening_lines": {
+        "default": "I build AI systems that automate data workflows — from API integration pipelines to LLM-powered analysis layers that turn raw data into structured, actionable output.",
+        "data_company": "Data engineer who builds AI automation on top of existing data stacks. PostgreSQL, Power BI, 15 API integrations, Claude-powered analysis — all production.",
+        "ai_company": "I use Claude API to build real automation: document extraction, structured data analysis, multi-agent pipelines. Not demos — deployed systems replacing manual workflows.",
+        "fullstack_company": "Full-stack engineer with a data and AI automation focus. React + Node.js frontend, PostgreSQL/MongoDB backend, Claude API integration for intelligent data processing."
+      },
+      "target_roles": [
+        "Data Engineer",
+        "AI Engineer (Data/Analytics)",
+        "Backend Engineer (Python/Node.js)",
+        "Full-Stack Engineer",
+        "LLM Integration Engineer",
+        "ML Platform Engineer",
+        "Analytics Engineer"
+      ],
+      "target_companies": {
+        "tier_1": ["Retool", "Airtable", "Notion", "Linear", "Hex (data notebooks)"],
+        "tier_2": ["YC data/analytics startups", "AI automation SaaS companies", "BI/reporting tools"],
+        "tier_3": ["dbt Labs", "Airbyte", "Metabase", "Census", "Hightouch"]
+      }
+    },
+
+    "protocol_engineer": {
+      "_targets": ["protocol", "infra", "distributed", "networking", "systems", "p2p", "blockchain"],
+      "title": "Protocol & Systems Engineer — Rust + Distributed Infra",
+      "summary": "I design and implement communication protocols in Rust. Production MCP server (JSON-RPC 2.0 over stdio), async transport design, compliance-grade audit layer. I work at the protocol level — where wire format decisions, serialization choices, and runtime behavior determine system reliability.",
+      "positioning": {
+        "wedge": "Most engineers use protocols. I build them. MCP, stdio transport, rate-limited async dispatch — shipped in Rust.",
+        "machine_statement": "The protocol layer is where correctness matters most. Get it wrong there and nothing above it works."
+      },
+      "skills_priority": [
+        "Rust (tokio async runtime, serde, reqwest, sqlx, rmcp)",
+        "Protocol design — MCP (JSON-RPC 2.0), stdio/HTTP transport layers",
+        "Async systems — multi-threaded tokio, zero-copy deserialization",
+        "Distributed systems patterns — rate limiting, audit logging, idempotency",
+        "API design (REST, WebSocket, stdio)",
+        "Python (asyncio, aiohttp, FastAPI)",
+        "SQLite / PostgreSQL",
+        "Docker / Linux"
+      ],
+      "experience_bullets": [
+        "Designed and shipped production MCP (Model Context Protocol) server in Rust: JSON-RPC 2.0 over stdio, 11 tool handlers, rmcp 1.7.0 macro-based dispatch (#[tool_router], #[tool], #[tool_handler]), tokio multi-thread runtime",
+        "Built sliding-window rate limiter from scratch: tokio::sync::Mutex + VecDeque<Instant>, per-tool configurable limits (5/min Hunter.io, 60/min DB writes, 20/min WebReveal), O(1) eviction",
+        "Built PII detection layer: compiled Regex via OnceLock (API keys, emails, SSN, credit cards, IPv4), detect_types() + redact() pipeline, per-call audit log with DefaultHasher output fingerprinting",
+        "Integrated async HTTP clients across 5 external APIs: connection pooling via reqwest::Client, serde JSON deserialization, error propagation with full type safety — no panics in production path"
+      ],
+      "opening_lines": {
+        "default": "Protocol engineer who ships in Rust. I work at the wire level — transport design, serialization, async dispatch, rate limiting. Production MCP server live.",
+        "infra_company": "Systems engineer with production Rust protocol work. Built MCP server, sliding-window rate limiter, PII pipeline — the full compliance stack for agent tool use at scale.",
+        "distributed_company": "I build distributed systems infrastructure in Rust: async transport, protocol dispatch, rate limiters, audit logs. Shipped in production. No runtime surprises.",
+        "p2p_company": "Rust systems engineer with deep protocol experience. Built production MCP (JSON-RPC 2.0) server, custom rate limiter, async HTTP pipeline — comfortable at the transport and serialization layer."
+      },
+      "target_roles": [
+        "Protocol Engineer",
+        "Infrastructure Engineer (Rust)",
+        "Distributed Systems Engineer",
+        "Platform Engineer",
+        "Systems Software Engineer",
+        "Network Systems Engineer"
+      ],
+      "target_companies": {
+        "tier_1": ["Cloudflare (protocols team)", "Fastly", "Fly.io", "Railway", "Tailscale"],
+        "tier_2": ["Web3 / p2p protocols (libp2p ecosystem)", "DevOps infra startups", "CDN/edge companies"],
+        "tier_3": ["HashiCorp", "Temporal", "CockroachDB", "PingCAP (TiKV)"]
+      }
+    }
   },
-  "target_roles": [
-    "MCP Infrastructure Engineer",
-    "Agent Infrastructure Engineer",
-    "Rust Backend Engineer (AI/LLM tooling)",
-    "Protocol Engineer",
-    "Developer Tools Engineer (Rust)"
+
+  "shared_experience": [
+    {
+      "role": "AI & Systems Engineer",
+      "company": "AITS Group",
+      "duration": "2023 - Present",
+      "type": "full-time",
+      "highlights": [
+        "Built production Rust MCP server — 11 tools, compliance layer, SQLite pipeline",
+        "Built AI-powered student assessment portal — React/Node.js/MongoDB + Claude Vision OCR",
+        "Integrated 15+ external APIs into unified data pipeline with AI analysis layer",
+        "Built multi-agent Python automation: parallel Claude calls, asyncio.gather(), Obsidian vault sync"
+      ]
+    }
   ],
+
+  "projects": [
+    {
+      "name": "Networking Agent — Production Rust MCP Server",
+      "tech": ["Rust", "rmcp", "tokio", "sqlx", "reqwest", "serde", "Python", "Claude API"],
+      "description": "MCP server with 11 tools: GitHub user/org search, YC company data, tech stack detection (WebReveal), email finding (Hunter.io), remote job search (RemoteOK), SQLite prospect pipeline. Multi-agent Python layer: Research Agent, Classifier Agent, CV Agent, Outreach Agent — all parallel async Claude calls.",
+      "github": "https://github.com/Saraswat123/networking-agent",
+      "signal": "One of the first production Rust MCP servers publicly available. MCP is the protocol Anthropic, Google DeepMind, and OpenAI are standardizing on for agent tool use.",
+      "relevant_for": ["rust_mcp", "protocol_engineer"]
+    },
+    {
+      "name": "Student Assessment Portal — AI Paper Scanning",
+      "tech": ["React", "Node.js", "MongoDB", "Claude Vision API (claude-opus-4-8)", "PostgreSQL", "Power BI"],
+      "description": "Full-stack assessment system with AI scan detection. POST /api/scan-paper sends scanned sheets to Claude Vision — MCQ tick mark detection + handwriting OCR across 11 parameters, confidence scoring, structured JSON output. Replaces manual marking workflow.",
+      "github": "https://github.com/Saraswat123/Rysen-Learning-System",
+      "signal": "Production AI system replacing manual assessment workflow. Demonstrates Claude Vision API for document analysis at scale.",
+      "relevant_for": ["data_engineering"]
+    }
+  ],
+
   "outreach_angles": {
-    "performance": "Python MCP servers add 50-200ms per tool call. Rust doesn't. At agent scale, that gap is your product's speed. I already built and shipped the Rust version.",
-    "rare_combo": "Most AI engineers can't write systems code. Most systems engineers don't understand LLM tool use. I work at both layers simultaneously.",
-    "shipped": "Not a side project. Production rmcp server, 11 live tools, stdio transport, async tokio runtime, SQLite persistence. Running now.",
-    "timing": "MCP is 6 months old. The teams that build the fastest MCP infrastructure in the next 12 months will own the agent tooling space. I started 6 months ago."
-  },
-  "cv_opening_lines": {
-    "default": "I build fast AI agent infrastructure in Rust — because at agent scale, every millisecond compounds and Python's garbage collector doesn't care about your SLA.",
-    "for_rust_companies": "Rust engineer focused on zero-latency AI agent tooling. Production MCP server, 11 tools, tokio async, zero GC pauses.",
-    "for_ai_companies": "I ship the performance layer that makes AI agents fast. Most teams run Python MCP servers. Mine runs in Rust — deterministic, zero-overhead, production-ready.",
-    "for_infra_companies": "Systems engineer who crossed over into AI infrastructure. I build MCP servers in Rust because the protocol deserves a runtime that won't pause mid-tool-call."
-  },
-  "open_to": ["remote", "hybrid", "full-time", "contract"]
+    "rust_mcp": {
+      "performance": "Python MCP servers add 50-200ms per tool call. Rust doesn't. At agent scale, that gap is your product's speed. I already built and shipped the Rust version.",
+      "rare_combo": "Most AI engineers can't write systems code. Most systems engineers don't understand LLM tool use. I work at both layers simultaneously.",
+      "shipped": "Not a side project. Production rmcp server, 11 live tools, stdio transport, async tokio runtime, SQLite persistence. Running now.",
+      "timing": "MCP is 6 months old. The teams that build the fastest MCP infrastructure in the next 12 months will own the agent tooling space. I started 6 months ago."
+    },
+    "data_engineering": {
+      "automation": "Manual data workflows are just automation waiting to happen. I've replaced analyst hours with Python + Claude pipelines across 15 API integrations.",
+      "ai_layer": "I don't just build data pipelines — I put Claude at the output layer. Structured extraction, automated analysis, document processing. The pipeline thinks.",
+      "fullstack": "Full-stack + data + AI automation in one. React frontend, Python/Node backend, PostgreSQL, Power BI dashboards, Claude integration — no handoffs needed."
+    },
+    "protocol_engineer": {
+      "depth": "I work at the wire level. Most engineers consume protocols. I design them — transport, serialization format, dispatch, rate limiting, audit trail.",
+      "rust": "Rust is the right language for protocol work. No GC, no runtime surprises, no memory bugs. I've shipped a production protocol server in it.",
+      "compliance": "Built the full compliance stack on top of MCP: sliding-window rate limiter, PII detection, per-call audit log with output fingerprinting. Enterprise-ready."
+    }
+  }
 }
