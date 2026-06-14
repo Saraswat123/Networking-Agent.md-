@@ -17,7 +17,9 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 
+import classifier_agent
 import cv_agent
+import obsidian_sync
 import orchestrator
 import outreach_agent
 import prospect_bridge
@@ -286,6 +288,89 @@ def bridge(
         dry_run=dry_run,
         skip_enrichment=skip_enrichment,
     )
+
+
+@app.command()
+def classify(
+    mode: str = typer.Option("both", help="Source: db | manual | both"),
+    limit: int = typer.Option(20, help="Max prospects to classify"),
+    concurrency: int = typer.Option(3, help="Parallel Claude agent sets per company"),
+    status: str = typer.Option("new", help="DB status filter: new | researched"),
+    company: str = typer.Option("", help="Classify single company by name (manual mode)"),
+    website: str = typer.Option("", help="Website for single company (manual mode)"),
+    location: str = typer.Option("", help="Location for single company (manual mode)"),
+    sector: str = typer.Option("", help="Sector hint for single company (manual mode)"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Run without writing to Obsidian"),
+):
+    """
+    Classifier Agent — identify non-technical companies (wealth families, family
+    offices, law firms, logistics, real estate) in US/UK/Europe wanting AI automation.
+
+    Two-track output:
+      TRACK A: Technical company → job application pipeline
+      TRACK B: Non-technical, AI-hungry → proposal + implementation outreach
+
+    Results written to Obsidian vault:
+      TrackA_Jobs/<Company>.md
+      TrackB_Proposals/<Company>.md
+
+    Examples:
+      python cli.py classify --mode db --limit 20
+      python cli.py classify --mode manual --company "Vermeer Capital" --website "vermeercap.com" --location "London, UK" --sector "wealth management"
+    """
+    require_api_key()
+
+    prospects = []
+
+    # Manual single company
+    if mode in ("manual",) or company:
+        if not company:
+            console.print("[red]--company required for manual mode[/red]")
+            raise typer.Exit(1)
+        notes = ""
+        if website:
+            notes = f"website:{website}"
+        if sector:
+            notes += f" sector:{sector}"
+        prospects = [{
+            "company": company,
+            "name": company,
+            "location": location,
+            "notes": notes,
+            "source": "manual",
+        }]
+
+    # Load from DB
+    if mode in ("db", "both") and not (mode == "manual" or company):
+        import sqlite3
+        db_path = Path(os.environ.get("NETWORKING_DB", str(Path.home() / "networking-agent.db")))
+        if not db_path.exists():
+            console.print(f"[yellow]DB not found:[/yellow] {db_path}")
+        else:
+            db = sqlite3.connect(str(db_path))
+            db.row_factory = sqlite3.Row
+            rows = db.execute(
+                "SELECT id, name, github, email, company, role, location, notes, source FROM prospects WHERE outreach_status = ? ORDER BY created_at DESC LIMIT ?",
+                (status, limit),
+            ).fetchall()
+            db.close()
+            prospects.extend([dict(r) for r in rows])
+
+    if not prospects:
+        console.print("[yellow]No prospects to classify.[/yellow]")
+        raise typer.Exit(0)
+
+    console.print(f"\n[bold]Classifier Agent:[/bold] {len(prospects)} companies — 3 agents each")
+    console.print(f"Tracks: A (job applications) + B (AI proposals → Obsidian)\n")
+
+    if dry_run:
+        console.print("[yellow]DRY RUN — no Obsidian writes[/yellow]\n")
+        for p in prospects:
+            console.print(f"  Would classify: {p.get('company') or p.get('name')} ({p.get('location', '?')})")
+        raise typer.Exit(0)
+
+    results = classifier_agent.classify_batch(prospects, concurrency=concurrency)
+    classifier_agent.print_classifier_report(results)
 
 
 if __name__ == "__main__":
