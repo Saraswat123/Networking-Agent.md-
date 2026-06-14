@@ -12,13 +12,21 @@ import os
 import sys
 from pathlib import Path
 
+# Auto-load .env from repo root
+_env = Path(__file__).parent.parent / ".env"
+if _env.exists():
+    from dotenv import load_dotenv
+    load_dotenv(_env)
+
 import typer
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 
 import classifier_agent
+import companies_house
 import cv_agent
+import email_sender
 import obsidian_sync
 import orchestrator
 import outreach_agent
@@ -371,6 +379,82 @@ def classify(
 
     results = classifier_agent.classify_batch(prospects, concurrency=concurrency)
     classifier_agent.print_classifier_report(results)
+
+
+@app.command()
+def send(
+    company: str = typer.Option(..., help="Company name (must have TrackB Obsidian note)"),
+    to: str = typer.Option(..., help="Recipient email address"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview email without sending"),
+):
+    """
+    Send Track B proposal email from Obsidian draft via Gmail SMTP.
+
+    Reads subject + body from TrackB_Proposals/<Company>.md in Obsidian.
+    Requires GMAIL_ADDRESS and GMAIL_APP_PASSWORD in env.
+
+    Examples:
+      python cli.py send --company "Vermeer Capital" --to "ceo@vermeercap.com" --dry-run
+      python cli.py send --company "Vermeer Capital" --to "ceo@vermeercap.com"
+    """
+    if not dry_run:
+        if not os.environ.get("GMAIL_ADDRESS") or not os.environ.get("GMAIL_APP_PASSWORD"):
+            console.print("[red]Set GMAIL_ADDRESS + GMAIL_APP_PASSWORD in .env[/red]")
+            console.print("App password: myaccount.google.com/apppasswords")
+            raise typer.Exit(1)
+
+    result = email_sender.send_track_b_email(company, to, dry_run=dry_run)
+    if result["status"] == "sent":
+        email_sender.log_to_db(company, to, "emailed")
+        console.print(f"\n[green]Sent.[/green] Status updated to 'emailed' in DB.")
+    elif result["status"] == "dry_run":
+        console.print("\n[yellow]Dry run complete. Add --no-dry-run to send.[/yellow]")
+
+
+@app.command()
+def lookup(
+    company: str = typer.Option(..., help="Company name to look up"),
+    country: str = typer.Option("uk", help="Country: uk (more sources coming)"),
+):
+    """
+    Look up company background from public registries.
+
+    UK: Companies House API (free) — profile, incorporation date, active directors.
+    Use directors list to find decision-maker names for outreach.
+
+    Examples:
+      python cli.py lookup --company "Vermeer Capital Management"
+      python cli.py lookup --company "Apex Legal Services" --country uk
+    """
+    console.print(f"\n[bold]Looking up:[/bold] {company} ({country.upper()})\n")
+
+    if country.lower() == "uk":
+        result = companies_house.research_uk_company(company)
+        if "error" in result:
+            console.print(f"[red]{result['error']}[/red]")
+            raise typer.Exit(1)
+
+        co = result["company"]
+        profile = result["profile"]
+        dms = result["decision_makers"]
+
+        console.print(f"[bold]{co['name']}[/bold]")
+        console.print(f"  Status:       {co['status']}")
+        console.print(f"  Incorporated: {co['incorporated']} ({result.get('incorporated_years', '?')} years ago)")
+        console.print(f"  Type:         {co['type']}")
+        console.print(f"  SIC codes:    {', '.join(co['sic_codes'])}")
+        console.print(f"  Address:      {co['address']} {co['postcode']}")
+        console.print(f"  CH link:      {co['ch_url']}")
+
+        if dms:
+            console.print(f"\n[bold]Active Directors/Officers ({len(dms)}):[/bold]")
+            for d in dms:
+                console.print(f"  {d['name']:<35} {d['role']}")
+
+        if profile.get("last_accounts"):
+            console.print(f"\n  Last accounts: {profile['last_accounts']}")
+    else:
+        console.print(f"[yellow]Only 'uk' supported currently. More countries coming.[/yellow]")
 
 
 if __name__ == "__main__":
