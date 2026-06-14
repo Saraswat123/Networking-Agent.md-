@@ -10,7 +10,16 @@ Three parallel Claude agents per company:
   2. AI Hunger Detector → do they want/need AI automation?
   3. Proposal Generator → what specific AI solution do we offer?
 
-Target markets: US, UK, Europe
+Target markets: GLOBAL — wealth concentrated everywhere, not just West
+  Northern Europe: Switzerland, Netherlands, Sweden, Norway, Denmark, Finland
+  Gulf/Middle East: UAE, Saudi Arabia, Qatar, Kuwait, Bahrain, Oman
+  Southeast Asia:  Singapore, Hong Kong, Thailand, Malaysia, Indonesia
+  East Asia:       Japan, South Korea, Taiwan
+  Oceania:         Australia, New Zealand
+  Latin America:   Brazil, Mexico, Colombia, Chile, Argentina
+  Africa:          South Africa, Nigeria, Kenya, Egypt
+  South Asia:      India (HNWIs/conglomerates)
+
 Target sectors: wealth management, legal, real estate, logistics,
                 family offices, private equity, professional services
 """
@@ -33,10 +42,27 @@ TRACK_A = "A"   # technical, job application
 TRACK_B = "B"   # non-technical, proposal + implementation
 TRACK_SKIP = "skip"
 
-# Target countries for Track B sourcing
-TARGET_REGIONS = ["US", "UK", "United Kingdom", "Europe", "Germany", "France",
-                  "Netherlands", "Switzerland", "Sweden", "Spain", "Italy",
-                  "United States", "Canada", "Australia"]
+# Target countries for Track B sourcing — global wealth regions
+TARGET_REGIONS = [
+    # Western English-speaking
+    "US", "United States", "UK", "United Kingdom", "Canada", "Australia", "New Zealand",
+    # Northern/Western Europe
+    "Germany", "France", "Netherlands", "Switzerland", "Sweden", "Norway", "Denmark",
+    "Finland", "Belgium", "Austria", "Luxembourg", "Ireland", "Spain", "Italy",
+    "Portugal", "Poland", "Czech Republic",
+    # Gulf / Middle East (fastest growing HNWI)
+    "UAE", "United Arab Emirates", "Dubai", "Abu Dhabi", "Saudi Arabia", "Qatar",
+    "Kuwait", "Bahrain", "Oman",
+    # Southeast / East Asia
+    "Singapore", "Hong Kong", "Japan", "South Korea", "Taiwan", "Thailand",
+    "Malaysia", "Indonesia", "Philippines",
+    # South Asia
+    "India",
+    # Latin America
+    "Brazil", "Mexico", "Colombia", "Chile", "Argentina", "Peru",
+    # Africa
+    "South Africa", "Nigeria", "Kenya", "Egypt", "Ghana",
+]
 
 # Sectors that have money + need AI but lack technical staff
 HIGH_VALUE_SECTORS = [

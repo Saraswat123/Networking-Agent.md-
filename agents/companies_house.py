@@ -1,10 +1,12 @@
 """
-UK Companies House API — free company background research.
+Company registry lookups — free sources by country.
 
-Free tier: 600 requests / 5 minutes, no auth needed for basic search.
-Full data (officers, accounts): requires free API key.
+UK:  Companies House API — 600 req/5min, free key at find-and-update.company-information.service.gov.uk/get-started
+UAE: Dubai DED open data — no auth needed
+SG:  ACRA BizFile — basic search free
+AU:  ASIC company search — free
 
-Register: find-and-update.company-information.service.gov.uk/get-started
+Currently implemented: UK (full), others return web search URL.
 """
 
 import os
@@ -102,6 +104,42 @@ def get_officers(company_number: str) -> list[dict]:
         for o in items
         if not o.get("resigned_on")  # active only
     ]
+
+
+def research_company_global(company_name: str, country: str = "uk") -> dict:
+    """Route to correct registry by country."""
+    country = country.lower().strip()
+    uk_variants = {"uk", "united kingdom", "england", "scotland", "wales", "gb"}
+    if country in uk_variants:
+        return research_uk_company(company_name)
+
+    # For other regions: return registry link for manual lookup
+    registry_links = {
+        "uae": f"https://www.dubaided.gov.ae/en/Pages/CompanySearch.aspx?q={company_name.replace(' ', '+')}",
+        "dubai": f"https://www.dubaided.gov.ae/en/Pages/CompanySearch.aspx?q={company_name.replace(' ', '+')}",
+        "sg": f"https://www.bizfile.gov.sg/ngbbizfileinternet/faces/oracle/webcenter/portalapp/pages/BizFileInternet.jspx",
+        "singapore": f"https://www.bizfile.gov.sg",
+        "au": f"https://connectonline.asic.gov.au/RegistrySearch/faces/landing/SearchRegisters.jspx",
+        "australia": f"https://connectonline.asic.gov.au",
+        "us": f"https://www.sec.gov/cgi-bin/browse-edgar?company={company_name.replace(' ', '+')}&CIK=&type=&dateb=&owner=include&count=40&search_text=&action=getcompany",
+        "de": f"https://www.handelsregister.de/rp_web/search.do",
+        "germany": f"https://www.handelsregister.de",
+        "nl": f"https://www.kvk.nl/en/search/?q={company_name.replace(' ', '+')}",
+        "netherlands": f"https://www.kvk.nl/en/search/?q={company_name.replace(' ', '+')}",
+        "fr": f"https://www.societe.com/cgi-bin/search?champs={company_name.replace(' ', '+')}",
+        "france": f"https://www.societe.com/cgi-bin/search?champs={company_name.replace(' ', '+')}",
+        "sa": f"https://cr.mc.gov.sa/en/pages/commercial-registry-search.aspx",
+        "saudi": f"https://cr.mc.gov.sa",
+        "in": f"https://www.mca.gov.in/mcafoportal/viewCompanyMasterData.do",
+        "india": f"https://www.mca.gov.in",
+    }
+    link = registry_links.get(country, f"https://www.google.com/search?q={company_name.replace(' ', '+')}+company+registration+{country}")
+    return {
+        "source": f"Registry link ({country})",
+        "company": {"name": company_name},
+        "registry_url": link,
+        "note": f"Full API for {country} not yet integrated. Use link above for manual lookup.",
+    }
 
 
 def research_uk_company(company_name: str) -> dict:

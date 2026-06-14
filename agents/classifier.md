@@ -28,7 +28,20 @@ Track B is the classifier's primary focus. These companies have:
 
 ## Target Markets
 
-**Countries:** US, UK, Germany, France, Netherlands, Switzerland, Sweden, Spain, Italy
+**Global coverage — wealth exists everywhere:**
+
+| Region | Key Countries |
+|---|---|
+| Northern Europe | Switzerland, Netherlands, Sweden, Norway, Denmark, Finland, Luxembourg |
+| Western Europe | UK, Germany, France, Ireland, Belgium, Austria, Spain, Italy |
+| Gulf / Middle East | UAE (Dubai/Abu Dhabi), Saudi Arabia, Qatar, Kuwait, Bahrain, Oman |
+| Southeast Asia | Singapore, Hong Kong, Thailand, Malaysia, Indonesia, Philippines |
+| East Asia | Japan, South Korea, Taiwan |
+| Oceania | Australia, New Zealand |
+| North America | US, Canada |
+| Latin America | Brazil, Mexico, Colombia, Chile, Argentina |
+| South Asia | India (conglomerates, HNWI family offices) |
+| Africa | South Africa, Nigeria, Kenya, Egypt, Ghana |
 
 **Sectors with highest AI hunger:**
 - Wealth management / family offices / private equity
@@ -249,13 +262,23 @@ GET https://api.companieshouse.gov.uk/search/companies?q=family+office&items_per
 
 ## Pricing Guide by Geography
 
-| Region | Setup range | Monthly retainer |
-|---|---|---|
-| US (NYC/SF) | $20,000–50,000 | $3,000–8,000 |
-| UK (London) | £15,000–40,000 | £2,500–6,000 |
-| UK (regional) | £8,000–20,000 | £1,500–3,500 |
-| Germany/Netherlands | €12,000–35,000 | €2,000–5,000 |
-| Rest of Europe | €8,000–25,000 | €1,500–4,000 |
+| Region | Setup range | Monthly retainer | Notes |
+|---|---|---|---|
+| US (NYC/SF/Chicago) | $25,000–60,000 | $4,000–10,000 | Highest budgets globally |
+| US (regional) | $15,000–35,000 | $2,500–6,000 | |
+| UK (London) | £15,000–40,000 | £2,500–6,000 | Finance/legal hub |
+| UK (regional) | £8,000–20,000 | £1,500–3,500 | |
+| Switzerland | CHF 20,000–50,000 | CHF 3,000–8,000 | Private banking, highest per-capita wealth |
+| UAE / Dubai | $20,000–55,000 | $3,500–9,000 | Family offices growing fast, cash-rich |
+| Saudi Arabia | $25,000–70,000 | $5,000–12,000 | Vision 2030 AI mandate = big appetite |
+| Singapore | SGD 25,000–60,000 | SGD 4,000–8,000 | Asia wealth hub, English-speaking |
+| Hong Kong | HKD 150,000–400,000 | HKD 25,000–60,000 | |
+| Germany/Netherlands | €12,000–35,000 | €2,000–5,000 | |
+| Norway/Sweden | NOK/SEK equivalent ~£12k–30k | £2,000–4,500 | Shipping + energy dynasties |
+| Australia | AUD 25,000–55,000 | AUD 4,000–8,000 | Resource + agricultural wealth |
+| India (Mumbai/Delhi) | $10,000–30,000 | $2,000–5,000 | Conglomerates, large budgets |
+| Brazil/Mexico | $8,000–25,000 | $1,500–4,000 | Emerging, lower rates, high volume |
+| South Africa | $8,000–20,000 | $1,500–3,500 | Mining/finance families |
 
 ---
 

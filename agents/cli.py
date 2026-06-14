@@ -414,47 +414,58 @@ def send(
 @app.command()
 def lookup(
     company: str = typer.Option(..., help="Company name to look up"),
-    country: str = typer.Option("uk", help="Country: uk (more sources coming)"),
+    country: str = typer.Option("uk", help="Country code: uk | us | uae | sg | au | de | nl | fr | sa | in"),
 ):
     """
-    Look up company background from public registries.
+    Look up company background from public registries (global).
 
-    UK: Companies House API (free) — profile, incorporation date, active directors.
-    Use directors list to find decision-maker names for outreach.
+    UK:        Companies House API (free) — full profile, incorporation date, active directors
+    US:        SEC EDGAR search link
+    UAE/Dubai: DED company search link
+    Singapore: ACRA BizFile link
+    Australia: ASIC search link
+    Germany:   Handelsregister link
+    + France, Netherlands, Saudi Arabia, India
 
     Examples:
-      python cli.py lookup --company "Vermeer Capital Management"
-      python cli.py lookup --company "Apex Legal Services" --country uk
+      python cli.py lookup --company "Vermeer Capital Management" --country uk
+      python cli.py lookup --company "Gulf Family Office" --country uae
+      python cli.py lookup --company "Apex Holdings" --country sg
     """
     console.print(f"\n[bold]Looking up:[/bold] {company} ({country.upper()})\n")
 
-    if country.lower() == "uk":
-        result = companies_house.research_uk_company(company)
-        if "error" in result:
-            console.print(f"[red]{result['error']}[/red]")
-            raise typer.Exit(1)
+    result = companies_house.research_company_global(company, country)
 
-        co = result["company"]
-        profile = result["profile"]
-        dms = result["decision_makers"]
+    if "error" in result:
+        console.print(f"[red]{result['error']}[/red]")
+        raise typer.Exit(1)
 
-        console.print(f"[bold]{co['name']}[/bold]")
-        console.print(f"  Status:       {co['status']}")
-        console.print(f"  Incorporated: {co['incorporated']} ({result.get('incorporated_years', '?')} years ago)")
-        console.print(f"  Type:         {co['type']}")
-        console.print(f"  SIC codes:    {', '.join(co['sic_codes'])}")
-        console.print(f"  Address:      {co['address']} {co['postcode']}")
-        console.print(f"  CH link:      {co['ch_url']}")
+    # Non-UK: show registry link
+    if "registry_url" in result:
+        console.print(f"[yellow]{result['note']}[/yellow]")
+        console.print(f"  Registry: {result['registry_url']}")
+        raise typer.Exit(0)
 
-        if dms:
-            console.print(f"\n[bold]Active Directors/Officers ({len(dms)}):[/bold]")
-            for d in dms:
-                console.print(f"  {d['name']:<35} {d['role']}")
+    # UK: full data
+    co = result["company"]
+    profile = result.get("profile", {})
+    dms = result.get("decision_makers", [])
 
-        if profile.get("last_accounts"):
-            console.print(f"\n  Last accounts: {profile['last_accounts']}")
-    else:
-        console.print(f"[yellow]Only 'uk' supported currently. More countries coming.[/yellow]")
+    console.print(f"[bold]{co['name']}[/bold]")
+    console.print(f"  Status:       {co.get('status')}")
+    console.print(f"  Incorporated: {co.get('incorporated')} ({result.get('incorporated_years', '?')} years ago)")
+    console.print(f"  Type:         {co.get('type')}")
+    console.print(f"  SIC codes:    {', '.join(co.get('sic_codes', []))}")
+    console.print(f"  Address:      {co.get('address', '')} {co.get('postcode', '')}")
+    console.print(f"  CH link:      {co.get('ch_url', '')}")
+
+    if dms:
+        console.print(f"\n[bold]Active Directors/Officers ({len(dms)}):[/bold]")
+        for d in dms:
+            console.print(f"  {d['name']:<35} {d['role']}")
+
+    if profile.get("last_accounts"):
+        console.print(f"\n  Last accounts: {profile['last_accounts']}")
 
 
 if __name__ == "__main__":
