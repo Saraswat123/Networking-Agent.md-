@@ -1,9 +1,10 @@
 """CV Agent — parses a job description and generates a tailored CV using Claude.
 
 Multi-angle profile system:
-  rust_mcp        → Rust MCP Infrastructure Engineer (protocol, agent infra, devtools)
-  data_engineering → AI & Data Engineer (Python, PostgreSQL, Power BI, LLM automation)
-  protocol_engineer → Protocol & Systems Engineer (distributed systems, async Rust)
+  rust_mcp         → Rust MCP Infrastructure Engineer (protocol, agent infra, devtools)
+  data_engineering → Data Engineer (PostgreSQL, Power BI, ETL, API pipelines, LLM automation)
+  ai_ml_infra      → AI Infrastructure Engineer (LLM pipelines, multi-agent, Ollama, Claude)
+  protocol_engineer → Protocol & Systems Engineer (distributed systems, BFT consensus, async Rust)
 
 CV Agent detects role type from JD, picks matching profile angle, generates tailored CV.
 """
@@ -24,17 +25,22 @@ ROLE_TYPE_MAP = {
     "protocol":           "protocol_engineer",
     "infra":              "rust_mcp",
     "devtools":           "rust_mcp",
-    "agent_infra":        "rust_mcp",
+    "agent_infra":        "ai_ml_infra",
     "mcp":                "rust_mcp",
     "distributed":        "protocol_engineer",
     "networking":         "protocol_engineer",
     "p2p":                "protocol_engineer",
     "systems":            "protocol_engineer",
-    "backend":            "data_engineering",
+    "backend":            "rust_mcp",
     "fullstack":          "data_engineering",
     "data":               "data_engineering",
+    "data_engineering":   "data_engineering",
     "analytics":          "data_engineering",
-    "ml":                 "data_engineering",
+    "ml":                 "ai_ml_infra",
+    "ai_infra":           "ai_ml_infra",
+    "mlops":              "ai_ml_infra",
+    "genai":              "ai_ml_infra",
+    "llm":                "ai_ml_infra",
     "bi":                 "data_engineering",
     "etl":                "data_engineering",
     "frontend":           "data_engineering",
@@ -67,18 +73,24 @@ def pick_profile_angle(jd_analysis: dict, override: Optional[str] = None) -> tup
     data_signals = ["python", "sql", "postgresql", "postgres", "power bi", "pandas", "etl",
                     "airflow", "dbt", "analytics", "dashboard", "mongodb", "node", "react",
                     "javascript", "typescript", "fullstack", "full-stack"]
+    ai_signals = ["llm", "ml", "pytorch", "tensorflow", "embedding", "vector", "inference",
+                  "rag", "mlops", "genai", "fine-tuning", "ollama", "agent", "langchain",
+                  "multi-agent", "anthropic", "openai", "huggingface"]
     proto_signals = ["protocol", "distributed", "p2p", "grpc", "tcp", "udp", "networking",
-                     "libp2p", "consensus", "blockchain", "kafka", "pubsub"]
+                     "libp2p", "consensus", "blockchain", "kafka", "pubsub", "bft"]
 
     combined = " ".join(stack + must + [role_type])
 
     rust_score = sum(1 for s in rust_signals if s in combined)
     data_score = sum(1 for s in data_signals if s in combined)
+    ai_score = sum(1 for s in ai_signals if s in combined)
     proto_score = sum(1 for s in proto_signals if s in combined)
 
-    # Rust/protocol signals + explicit rust/protocol role → rust_mcp or protocol_engineer
-    if "protocol" in combined or "p2p" in combined or "distributed" in combined:
+    # Protocol/consensus signals → protocol_engineer
+    if "protocol" in combined or "p2p" in combined or "distributed" in combined or "consensus" in combined:
         angle = "protocol_engineer"
+    elif ai_score >= 2:
+        angle = "ai_ml_infra"
     elif rust_score >= 2:
         angle = "rust_mcp"
     elif proto_score > rust_score and proto_score >= 2:
@@ -86,11 +98,13 @@ def pick_profile_angle(jd_analysis: dict, override: Optional[str] = None) -> tup
     else:
         # Fall back to map
         angle = ROLE_TYPE_MAP.get(role_type, "rust_mcp")
-        # If data signals dominate, force data angle
-        if data_score > rust_score and data_score >= 2:
+        # If data/AI signals dominate, override
+        if ai_score > rust_score and ai_score >= 2:
+            angle = "ai_ml_infra"
+        elif data_score > rust_score and data_score >= 2:
             angle = "data_engineering"
 
-    print(f"  [cv_agent] angle={angle} (rust={rust_score} data={data_score} proto={proto_score})")
+    print(f"  [cv_agent] angle={angle} (rust={rust_score} data={data_score} ai={ai_score} proto={proto_score})")
     return angle, cv_profiles[angle]
 
 
@@ -100,7 +114,7 @@ def generate_cv(job_description: str, company_name: str, role_title: str,
     Parse JD → detect role type → pick profile angle → generate tailored CV.
     Streams to terminal, saves to output/cvs/, returns full text.
 
-    angle_override: force "rust_mcp" | "data_engineering" | "protocol_engineer"
+    angle_override: force "rust_mcp" | "data_engineering" | "ai_ml_infra" | "protocol_engineer"
     """
     profile = load_profile()
     jd_analysis = analyze_jd(job_description)
@@ -213,7 +227,7 @@ JD:
 
 Return:
 {{
-  "role_type": "rust|protocol|infra|devtools|backend|fullstack|data|analytics|ml|bi|etl|distributed|networking|p2p|systems|frontend|other",
+  "role_type": "rust|protocol|infra|devtools|backend|fullstack|data|data_engineering|analytics|ml|ai_infra|mlops|genai|llm|bi|etl|distributed|networking|p2p|systems|agent_infra|frontend|other",
   "seniority": "junior|mid|senior|staff|lead",
   "must_have": ["list of required tech/skills"],
   "nice_to_have": ["list of preferred tech/skills"],
@@ -249,12 +263,14 @@ def _detect_company_type(jd_analysis: dict) -> str:
 
     if ct:
         return ct
-    if "rust" in stack or role in ("rust", "protocol", "infra"):
-        return "rust_company"
-    if role in ("data", "analytics", "bi", "ml", "etl"):
-        return "data_company"
-    if role in ("protocol", "distributed", "p2p", "networking"):
+    if role in ("protocol", "distributed", "p2p", "networking", "systems"):
         return "protocol_company"
+    if role in ("ml", "ai_infra", "mlops", "genai", "llm", "agent_infra"):
+        return "llm_company"
+    if "rust" in stack or role in ("rust", "infra"):
+        return "rust_company"
+    if role in ("data", "analytics", "bi", "etl", "data_engineering"):
+        return "data_company"
     if "ai" in stack or "llm" in stack or "agent" in stack:
-        return "ai_company"
+        return "llm_company"
     return "default"

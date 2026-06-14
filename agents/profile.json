@@ -82,10 +82,11 @@
         "Docker"
       ],
       "experience_bullets": [
-        "Built AI-powered student assessment portal: React + Node.js + MongoDB full-stack, Claude Vision API integration for automated paper scanning — OCR + MCQ tick mark detection across 11 parameters per sheet, replacing manual marking workflow",
-        "Integrated 15+ APIs into unified data pipeline: GitHub REST v3, YC API, Hunter.io, WebReveal, RemoteOK, UK Companies House — normalized output into SQLite prospect database with enrichment layer",
-        "Built multi-agent AI analysis system in Python: asyncio.gather() parallel Claude calls, structured JSON extraction, automated reporting — reduces manual company research from hours to seconds",
-        "Designed PostgreSQL + Power BI data layer for operational reporting: automated data refresh, DAX measures, dashboard templates for non-technical stakeholders"
+        "Designed and shipped PostgreSQL data warehouse from zero across 15-location edtech company: 30+ normalized tables (HRMS, KPI, EdTech schemas) — replaced 15 branch spreadsheets with single source of truth; 95% data accuracy, 85% branch reporting overhead eliminated",
+        "Built real-time 40+ KPI monitoring matrix: revenue/branch, enrollment funnel, seat utilization, teacher hours, lead→demo→enrollment ratio — Power BI dashboards with RAG alerting for daily founder visibility across 50+ staff",
+        "Architected 15+ API integration fabric: Zoho CRM/Books, Google API Console, HRMS, EdTech DB, LLM providers, SMS/email dispatch — zero manual handoffs, fully automated lead capture → routing → follow-up → outcome → KPI pipeline",
+        "Shipped OCR + handwriting recognition pipeline (Test Portal): scanned answer sheets → text classification → auto-graded scores → KPI DB in minutes; Claude Vision API for MCQ tick mark detection across 11 parameters per sheet",
+        "Integrated 15+ external APIs into networking agent data pipeline: GitHub REST v3, YC API, Hunter.io, WebReveal, RemoteOK, Companies House — normalized output into SQLite with enrichment layer"
       ],
       "opening_lines": {
         "default": "I build AI systems that automate data workflows — from API integration pipelines to LLM-powered analysis layers that turn raw data into structured, actionable output.",
@@ -109,6 +110,52 @@
       }
     },
 
+    "ai_ml_infra": {
+      "_targets": ["ml", "ai", "llm", "ai_infra", "ml_engineer", "mlops", "genai"],
+      "title": "AI Infrastructure Engineer — LLM Pipelines, Multi-Agent Systems, Automation",
+      "summary": "I build production AI systems — not demos. Multi-model LLM pipeline (Ollama local inference + cloud APIs + Vector DB) running across 50+ staff: staff logs → LLM → personalized output → dispatch → outcome logged → KPI updated. 80% reduction in manual communication prep. Parallel multi-agent Python orchestration with Claude. OCR + handwriting classification. Rust MCP server as zero-latency tool-use layer.",
+      "positioning": {
+        "wedge": "I don't fine-tune models — I build the infrastructure that makes LLMs useful in real workflows: the pipeline, dispatch, feedback loop, monitoring. End to end.",
+        "machine_statement": "An LLM demo and a production LLM system are two different things. I build the second kind."
+      },
+      "skills_priority": [
+        "Claude API — claude-opus-4-8, adaptive thinking, Vision, streaming, tool use",
+        "Ollama — local inference, model routing, multi-model selection",
+        "Multi-agent orchestration — asyncio.gather(), parallel Claude calls, Semaphore concurrency control",
+        "Vector DB + embedding pipelines + RAG system design",
+        "Python (asyncio, aiohttp, FastAPI) — LLM pipeline orchestration",
+        "OCR + document intelligence (Claude Vision API, text classification)",
+        "Rust (tokio, rmcp) — MCP server, zero-latency tool dispatch layer",
+        "PostgreSQL / SQLite / Power BI — output → KPI pipeline"
+      ],
+      "experience_bullets": [
+        "Built multi-model LLM system in production across 50+ staff: Ollama local inference + cloud APIs + Vector DB; pipeline — staff performance logs + lead data → LLM → personalized call scripts, email sequences, performance summaries → SMTP dispatch → outcome logged → KPI updated; 80% reduction in manual communication prep",
+        "Built LLM employee efficiency monitoring: tracks output quality per staff member, surfaces underperformance alerts in real-time to Power BI dashboard — measurable vs zero baseline 12 months prior",
+        "Built parallel multi-agent Python orchestration using claude-opus-4-8 with adaptive thinking: 3 specialized Claude agents per company simultaneously (Tech Classifier, AI Hunger Detector, Proposal Generator); asyncio.gather() + asyncio.Semaphore(N) — 9 parallel Claude calls, 10 companies analyzed in ~60s",
+        "Integrated Claude Vision API for document intelligence: POST endpoint accepts scanned answer sheets, extracts MCQ tick marks + handwritten answers with confidence scoring across 11 parameters per sheet; minutes vs hours manually",
+        "Architected Rust MCP server (rmcp, tokio) as zero-latency tool-use layer for Claude agents: 11 live tools, zero GC pauses, stdio transport, compliance layer (rate limiter, PII redaction, audit log)"
+      ],
+      "opening_lines": {
+        "default": "I build production LLM pipelines — not experiments. Multi-model system, parallel agent orchestration, automated dispatch loops, real-time outcome tracking. Running in production across 50+ staff.",
+        "llm_company": "I run multi-model LLM pipelines in production: Ollama local + cloud APIs + Vector DB, parallel Claude agents with adaptive thinking, automated output→dispatch→KPI feedback loops. Not a demo.",
+        "agent_company": "Multi-agent systems in production. Parallel async Claude agents, asyncio.gather() concurrency control, automated output dispatch with outcome tracking. Rust MCP server as the tool layer.",
+        "mlops_company": "I build the infrastructure layer for LLMs in real workflows: pipeline orchestration, model routing, output dispatch, monitoring. The part most ML teams skip."
+      },
+      "target_roles": [
+        "AI Infrastructure Engineer",
+        "LLM Platform Engineer",
+        "ML Systems Engineer",
+        "AI Automation Engineer",
+        "Agent Infrastructure Engineer",
+        "GenAI Engineer"
+      ],
+      "target_companies": {
+        "tier_1": ["Anthropic", "Cohere", "Mistral", "Together AI", "Replicate"],
+        "tier_2": ["YC AI infra companies (W25/S25)", "LLM tooling startups", "MLOps platforms"],
+        "tier_3": ["Weights & Biases", "LangChain", "Modal", "Baseten", "Anyscale"]
+      }
+    },
+
     "protocol_engineer": {
       "_targets": ["protocol", "infra", "distributed", "networking", "systems", "p2p", "blockchain"],
       "title": "Protocol & Systems Engineer — Rust + Distributed Infra",
@@ -128,10 +175,12 @@
         "Docker / Linux"
       ],
       "experience_bullets": [
-        "Designed and shipped production MCP (Model Context Protocol) server in Rust: JSON-RPC 2.0 over stdio, 11 tool handlers, rmcp 1.7.0 macro-based dispatch (#[tool_router], #[tool], #[tool_handler]), tokio multi-thread runtime",
-        "Built sliding-window rate limiter from scratch: tokio::sync::Mutex + VecDeque<Instant>, per-tool configurable limits (5/min Hunter.io, 60/min DB writes, 20/min WebReveal), O(1) eviction",
-        "Built PII detection layer: compiled Regex via OnceLock (API keys, emails, SSN, credit cards, IPv4), detect_types() + redact() pipeline, per-call audit log with DefaultHasher output fingerprinting",
-        "Integrated async HTTP clients across 5 external APIs: connection pooling via reqwest::Client, serde JSON deserialization, error propagation with full type safety — no panics in production path"
+        "Built protocol-engine-core: multi-crate Rust workspace — HotStuff 2-chain BFT consensus with full view-change/timeout path (NewViewMessage → NewViewCollector → leader rotation), QC threshold fires exactly once at f+1 boundary; 8-test view-change suite, 6 fault injection tests",
+        "Designed EIP-1559 priority mempool with bounded eviction: BTreeMap ordered by (priority_fee DESC, hash), O(1) pop_last on overflow, insert() returns bool reject signal; 5-test eviction suite + proptest fuzzing — eliminates OOM risk on long mempool runs",
+        "Implemented Ethereum Engine API (forkchoice_updated + PayloadAttributes → payload_id → get_payload round-trip): 14-test suite covering PayloadAttributes timestamp/randao, reorg detection, sync state transitions",
+        "Built LMD-GHOST fork choice with AggregateAttestation deduplication — prevents single validator inflating vote weight across replays; EIP-7805 FOCIL inclusion list enforcement; 10-test aggregation suite",
+        "Designed and shipped production MCP server in Rust: JSON-RPC 2.0 over stdio, 11 tool handlers, rmcp macro-based dispatch, tokio multi-thread runtime; compliance layer: sliding-window rate limiter (OnceLock Regex PII detection), per-call audit log with output fingerprinting",
+        "Built peer lifecycle manager: connection scoring, ban/backoff logic, RTT probe/pong with seq-based stale rejection, 64-sample ring buffer for latency tracking; wildcard prefix message broker with FilteredBroker pattern"
       ],
       "opening_lines": {
         "default": "Protocol engineer who ships in Rust. I work at the wire level — transport design, serialization, async dispatch, rate limiting. Production MCP server live.",
@@ -157,15 +206,17 @@
 
   "shared_experience": [
     {
-      "role": "AI & Systems Engineer",
-      "company": "AITS Group",
-      "duration": "2023 - Present",
+      "role": "AI & Data Infrastructure Engineer — Founders Office",
+      "company": "AITS Group (Edtech, 15 locations, 50+ staff)",
+      "duration": "2023 – Present",
       "type": "full-time",
       "highlights": [
-        "Built production Rust MCP server — 11 tools, compliance layer, SQLite pipeline",
-        "Built AI-powered student assessment portal — React/Node.js/MongoDB + Claude Vision OCR",
-        "Integrated 15+ external APIs into unified data pipeline with AI analysis layer",
-        "Built multi-agent Python automation: parallel Claude calls, asyncio.gather(), Obsidian vault sync"
+        "Designed PostgreSQL data warehouse: 30+ normalized tables (HRMS, KPI, EdTech schemas) — replaced 15 branch spreadsheets; 95% data accuracy, 85% reporting overhead eliminated",
+        "Built real-time 40+ KPI monitoring matrix with Power BI RAG alerting — revenue, enrollment funnel, seat utilization, teacher hours across 15 locations",
+        "Architected 15+ API integration fabric: Zoho CRM/Books, Google API Console, HRMS, LLM providers, SMS/email — zero manual handoffs",
+        "Built multi-model LLM pipeline in production: Ollama local + cloud + Vector DB; staff logs → LLM → personalized output → dispatch → KPI; 80% reduction in manual prep across 50+ staff",
+        "Built OCR + handwriting recognition pipeline: scanned answer sheets → Claude Vision API → auto-graded scores in minutes; LLM efficiency monitoring with real-time underperformance alerts",
+        "Architected production Rust MCP server (rmcp, tokio) — 11 live tools, compliance layer, SQLite pipeline; multi-agent Python orchestration: parallel async Claude agents, asyncio.gather() concurrency"
       ]
     }
   ],
