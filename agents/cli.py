@@ -23,10 +23,12 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 
+import background_agent
 import classifier_agent
 import companies_house
 import cv_agent
 import email_sender
+import lead_sourcer
 import obsidian_sync
 import orchestrator
 import outreach_agent
@@ -308,6 +310,101 @@ def bridge(
         dry_run=dry_run,
         skip_enrichment=skip_enrichment,
     )
+
+
+@app.command()
+def source(
+    sources: str = typer.Option("uk_ch,fca,ddg", help="Comma-separated sources: uk_ch | fca | ddg | gmaps"),
+    sectors: str = typer.Option("", help="Comma-separated sectors e.g. 'family office,wealth management'"),
+    cities: str = typer.Option("", help="Comma-separated cities e.g. 'London,Dubai,Singapore'"),
+    limit: int = typer.Option(50, help="Max leads to source per run"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview without saving to DB"),
+):
+    """
+    Source Track B leads — find non-technical companies (wealth, legal, property) to classify.
+
+    Sources:
+      uk_ch   UK Companies House (needs UK_CH_API_KEY — free)
+      fca     FCA Financial Services Register (free, no key)
+      ddg     DuckDuckGo sector+city search (free, no key)
+      gmaps   Google Maps Places API (needs GOOGLE_MAPS_API_KEY)
+
+    Saves to SQLite → then run `classify` to score + generate proposals.
+
+    Examples:
+      python cli.py source --sources uk_ch,fca --limit 100
+      python cli.py source --sources ddg --cities "London,Dubai,Zurich" --sectors "family office,law firm"
+      python cli.py source --sources uk_ch,fca,ddg --dry-run
+    """
+    src_list = [s.strip() for s in sources.split(",") if s.strip()]
+    sec_list = [s.strip() for s in sectors.split(",") if s.strip()] or None
+    city_list = [s.strip() for s in cities.split(",") if s.strip()] or None
+
+    console.print(f"\n[bold]Lead Sourcer:[/bold] {', '.join(src_list)}")
+    if sec_list:
+        console.print(f"  Sectors: {', '.join(sec_list)}")
+    if city_list:
+        console.print(f"  Cities:  {', '.join(city_list)}")
+    console.print()
+
+    leads = lead_sourcer.source_leads(
+        sources=src_list,
+        sectors=sec_list,
+        cities=city_list,
+        limit=limit,
+        dry_run=dry_run,
+    )
+    console.print(f"\n[green]Done.[/green] {len(leads)} leads. Run [bold]classify[/bold] to score them.")
+
+
+@app.command()
+def background(
+    company: str = typer.Option("", help="Research single company by name"),
+    status: str = typer.Option("new", help="DB status to pull from: new | researched"),
+    limit: int = typer.Option(10, help="Max companies to research"),
+    concurrency: int = typer.Option(3, help="Parallel Claude agents"),
+):
+    """
+    Background Agent — deep company research before proposal generation.
+
+    Pulls news, website text, UK Companies House data → Claude synthesizes
+    into structured profile: founding year, key people, revenue estimate,
+    pain signals, AI readiness, proposal hook.
+
+    Output saved to agents/output/background/<company>.json
+
+    Examples:
+      python cli.py background --company "Vermeer Capital Management"
+      python cli.py background --status new --limit 10
+    """
+    require_api_key()
+
+    prospects = []
+    if company:
+        prospects = [{"company": company, "name": company, "location": "", "notes": "", "source": "manual"}]
+    else:
+        import sqlite3
+        db_path = Path(os.environ.get("NETWORKING_DB", str(Path.home() / "networking-agent.db")))
+        if not db_path.exists():
+            console.print(f"[red]DB not found:[/red] {db_path}")
+            raise typer.Exit(1)
+        db = sqlite3.connect(str(db_path))
+        db.row_factory = sqlite3.Row
+        rows = db.execute(
+            "SELECT id, name, company, location, notes, source FROM prospects WHERE outreach_status=? ORDER BY created_at DESC LIMIT ?",
+            (status, limit),
+        ).fetchall()
+        db.close()
+        prospects = [dict(r) for r in rows]
+
+    if not prospects:
+        console.print("[yellow]No prospects found.[/yellow]")
+        raise typer.Exit(0)
+
+    console.print(f"\n[bold]Background Agent:[/bold] researching {len(prospects)} companies\n")
+    results = background_agent.research_batch(prospects, concurrency=concurrency)
+    background_agent.print_background_report(results)
+    console.print(f"\n[green]Saved[/green] → agents/output/background/")
 
 
 @app.command()

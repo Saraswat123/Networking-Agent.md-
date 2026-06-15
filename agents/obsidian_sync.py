@@ -109,6 +109,7 @@ def write_track_b(company: str, data: dict) -> Path:
     ai_hunger = data.get("ai_hunger", {})
     proposal = data.get("proposal", {})
     prospect = data.get("prospect", {})
+    bg = data.get("background", {})
 
     note = f"""---
 tags: [prospect, track-b, proposal, non-technical]
@@ -164,19 +165,32 @@ status: new
 ## Email Draft
 {proposal.get("email_draft", "_To be generated via outreach agent_")}
 
+## Background Research
+| Field | Value |
+|---|---|
+| Founded | {bg.get("founded_year", "?") if bg else "?"} |
+| Size | {bg.get("size_estimate", "?") if bg else "?"} employees |
+| Revenue est. | {bg.get("revenue_estimate", "?") if bg else "?"} |
+| AI readiness | {bg.get("ai_readiness", "?") if bg else "?"} |
+| Key people | {", ".join(f"{p['name']} ({p['role']})" for p in (bg.get("key_people", []) if bg else [])[:3]) or "?"} |
+| Recent news | {bg.get("recent_news", "?") if bg else "?"} |
+| Pain signals | {bg.get("pain_signals", "?") if bg else "?"} |
+
+## Proposal Hook
+> {(bg.get("proposal_hook") or proposal.get("outreach_hook") or "") if bg else proposal.get("outreach_hook", "")}
+
 ## Contact Info
 - Website: {prospect.get("notes", "").split("website:")[-1].split()[0] if "website:" in prospect.get("notes", "") else "?"}
 - Source: {prospect.get("source", "?")}
 - Location: {prospect.get("location", "?")}
 
-## Notes
-- Added: {_now()}
-- [ ] Research complete
-- [ ] Email drafted
+## Outreach Checklist
+- [ ] Background research complete
+- [ ] Email drafted (use Email Draft above)
 - [ ] Outreach sent
 - [ ] Follow-up 1 (day 7)
 - [ ] Follow-up 2 (day 14)
-- [ ] Proposal sent
+- [ ] Proposal document sent
 - [ ] Contract signed
 """
     path.write_text(note)

@@ -331,11 +331,34 @@ def classify_track(classifier: dict, ai_hunger: dict,
 
 # ─── Main entry ────────────────────────────────────────────────────────────────
 
-async def classify_company_async(prospect: dict, research_data: Optional[dict] = None) -> dict:
+async def classify_company_async(prospect: dict, research_data: Optional[dict] = None,
+                                  use_background: bool = True) -> dict:
     company = prospect.get("company") or prospect.get("name") or "Unknown"
     print(f"\n  [classify] {company} ({prospect.get('location', '?')})")
 
     website = extract_website_from_prospect(prospect)
+
+    # Load pre-computed background data if available
+    background_data = {}
+    if use_background:
+        safe = "".join(c for c in company if c.isalnum() or c in "-_").lower()
+        bg_path = Path(__file__).parent / "output" / "background" / f"background_{safe}.json"
+        if bg_path.exists():
+            try:
+                background_data = json.loads(bg_path.read_text()).get("profile", {})
+                print(f"    background=loaded ({background_data.get('founded_year', '?')} founded)")
+            except Exception:
+                pass
+
+    # Inject background signals into prospect notes for agents to use
+    if background_data:
+        hook = background_data.get("proposal_hook", "")
+        key_people = ", ".join(
+            f"{p['name']} ({p['role']})"
+            for p in background_data.get("key_people", [])[:3]
+        )
+        bg_note = f" [bg: {background_data.get('what_they_do', '')[:100]} | people:{key_people} | revenue:{background_data.get('revenue_estimate', '?')} | hook:{hook[:80]}]"
+        prospect = {**prospect, "notes": prospect.get("notes", "") + bg_note}
 
     # Data gathering
     tech_signals, website_info = await asyncio.gather(
@@ -367,6 +390,7 @@ async def classify_company_async(prospect: dict, research_data: Optional[dict] =
         "track_reason": track_decision["reason"],
         "classifier": classifier,
         "ai_hunger": ai_hunger,
+        "background": background_data,
         "proposal": proposal,
         "tech_signals": tech_signals,
         "score": ai_hunger.get("hunger_score", 0) if track == TRACK_B else classifier.get("tech_maturity", 0),
