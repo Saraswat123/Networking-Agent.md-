@@ -228,7 +228,7 @@
       "description": "MCP server with 11 tools: GitHub user/org search, YC company data, tech stack detection (WebReveal), email finding (Hunter.io), remote job search (RemoteOK), SQLite prospect pipeline. Multi-agent Python layer: Research Agent, Classifier Agent, CV Agent, Outreach Agent — all parallel async Claude calls.",
       "github": "https://github.com/Saraswat123/networking-agent",
       "signal": "One of the first production Rust MCP servers publicly available. MCP is the protocol Anthropic, Google DeepMind, and OpenAI are standardizing on for agent tool use.",
-      "relevant_for": ["rust_mcp", "protocol_engineer"]
+      "relevant_for": ["rust_mcp", "protocol_engineer", "ai_ml_infra"]
     },
     {
       "name": "Student Assessment Portal — AI Paper Scanning",
@@ -236,7 +236,7 @@
       "description": "Full-stack assessment system with AI scan detection. POST /api/scan-paper sends scanned sheets to Claude Vision — MCQ tick mark detection + handwriting OCR across 11 parameters, confidence scoring, structured JSON output. Replaces manual marking workflow.",
       "github": "https://github.com/Saraswat123/Rysen-Learning-System",
       "signal": "Production AI system replacing manual assessment workflow. Demonstrates Claude Vision API for document analysis at scale.",
-      "relevant_for": ["data_engineering"]
+      "relevant_for": ["data_engineering", "ai_ml_infra"]
     }
   ],
 
@@ -248,13 +248,21 @@
       "timing": "MCP is 6 months old. The teams that build the fastest MCP infrastructure in the next 12 months will own the agent tooling space. I started 6 months ago."
     },
     "data_engineering": {
-      "automation": "Manual data workflows are just automation waiting to happen. I've replaced analyst hours with Python + Claude pipelines across 15 API integrations.",
+      "automation": "Manual data workflows are just automation waiting to happen. I replaced analyst hours with Python + Claude pipelines across 15 API integrations at a 15-location company.",
       "ai_layer": "I don't just build data pipelines — I put Claude at the output layer. Structured extraction, automated analysis, document processing. The pipeline thinks.",
-      "fullstack": "Full-stack + data + AI automation in one. React frontend, Python/Node backend, PostgreSQL, Power BI dashboards, Claude integration — no handoffs needed."
+      "fullstack": "Full-stack + data + AI automation in one. React frontend, Python/Node backend, PostgreSQL, Power BI dashboards, Claude integration — no handoffs needed.",
+      "scale": "Built data infrastructure for 50+ staff across 15 locations. 30+ table PostgreSQL warehouse, 40+ KPI Power BI dashboards, 15 API integrations. All production."
+    },
+    "ai_ml_infra": {
+      "production": "I don't build LLM demos. I build the pipeline that runs daily across 50+ staff: logs → LLM → personalized output → dispatch → outcome tracked → KPI updated. 80% reduction in manual prep.",
+      "multi_model": "Multi-model in production: Ollama local inference + cloud APIs + Vector DB. Model routing based on task type, output quality monitoring, automated re-dispatch on low confidence.",
+      "multi_agent": "3 parallel Claude agents per company, asyncio.gather() + Semaphore concurrency control, 9 simultaneous LLM calls, 10 companies analyzed in ~60 seconds. Not theory.",
+      "rare_combo": "Most AI infrastructure engineers don't have the systems layer. I built the Rust MCP server underneath — zero-latency tool dispatch, no GC pauses, compliance-grade audit log."
     },
     "protocol_engineer": {
       "depth": "I work at the wire level. Most engineers consume protocols. I design them — transport, serialization format, dispatch, rate limiting, audit trail.",
-      "rust": "Rust is the right language for protocol work. No GC, no runtime surprises, no memory bugs. I've shipped a production protocol server in it.",
+      "consensus": "Built HotStuff 2-chain BFT consensus from scratch in Rust: view-change path, QC threshold, 8-test suite. EIP-1559 mempool with bounded eviction. Ethereum Engine API with 14-test suite.",
+      "rust": "Rust is the right language for protocol work. No GC, no runtime surprises, no memory bugs. I've shipped a production protocol server and a BFT consensus implementation in it.",
       "compliance": "Built the full compliance stack on top of MCP: sliding-window rate limiter, PII detection, per-call audit log with output fingerprinting. Enterprise-ready."
     }
   }
