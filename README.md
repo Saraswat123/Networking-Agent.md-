@@ -279,19 +279,6 @@ docker compose up
 
 Multi-stage build: `rust:1.93-slim` → `debian:bookworm-slim`. Final image ~15MB.
 
----
-
-## Target Companies
-
-The compliance layer makes this the right choice for:
-
-- **FinTech** (Ramp, Brex, Mercury) — PCI-DSS audit requirements
-- **LegalTech** (Harvey AI, Ironclad) — attorney-client privilege, zero data leakage
-- **HealthTech** (Oscar, Cityblock) — HIPAA PHI controls
-- **Enterprise SaaS** (Notion, Linear) — SOC2 Type II for enterprise tier
-- **Government** — CISA/NSA memory-safe language mandate, FedRAMP audit trail
-
----
 
 ## License
 
