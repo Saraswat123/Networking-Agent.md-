@@ -28,12 +28,15 @@ import classifier_agent
 import companies_house
 import cv_agent
 import email_sender
+import gmail_oauth
 import lead_sourcer
+import linkedin_agent
 import obsidian_sync
 import orchestrator
 import outreach_agent
 import prospect_bridge
 import research_agent
+import x_agent
 
 app = typer.Typer(help="Networking Agent — CV + Outreach automation")
 console = Console()
@@ -575,6 +578,149 @@ def lookup(
 
     if profile.get("last_accounts"):
         console.print(f"\n  Last accounts: {profile['last_accounts']}")
+
+
+@app.command(name="x-research")
+def x_research(
+    username: str = typer.Option(..., help="X @handle to research e.g. 'paulg'"),
+):
+    """
+    Research X profile + find best tweet to reply to before cold email.
+
+    Warm-up strategy: reply with technical insight → wait 2-3 days → send email.
+    Reply rates 3-5x higher vs pure cold email.
+
+    Requires: X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET in .env
+    """
+    result = x_agent.research_prospect_x(username)
+    if "error" in result:
+        console.print(f"[red]{result['error']}[/red]")
+        raise typer.Exit(1)
+
+    p = result["profile"]
+    console.print(f"\n[bold]@{p['username']}[/bold] — {p['name']}")
+    console.print(f"  Bio:       {p['description']}")
+    console.print(f"  Location:  {p['location']}")
+    console.print(f"  Followers: {p['followers']:,}")
+
+    best = result.get("best_tweet_to_reply")
+    if best:
+        console.print(f"\n[bold]Best tweet to reply:[/bold]")
+        console.print(f"  {best['text'][:120]}")
+        console.print(f"  {best['url']}")
+        console.print(f"  ♥ {best['likes']}  💬 {best['replies']}")
+    console.print(f"\n[bold]Warm-up:[/bold] {result['warm_up_strategy']}")
+
+
+@app.command(name="x-reply")
+def x_reply(
+    tweet_url: str = typer.Option(..., help="URL of tweet to reply to"),
+    message: str = typer.Option(..., help="Reply text (max 280 chars)"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+):
+    """
+    Reply to a tweet for warm-up outreach.
+
+    Best practice: genuine technical insight, no pitch.
+    Wait 2-3 days then send cold email referencing 'saw your tweet about X'.
+
+    Requires: X_* keys in .env
+    """
+    tweet_id = tweet_url.rstrip("/").split("/")[-1]
+    result = x_agent.post_reply(tweet_id, message, dry_run=dry_run)
+    if result and result.get("status") == "replied":
+        console.print(f"[green]Replied.[/green]")
+    elif result and result.get("status") == "dry_run":
+        console.print("[yellow]Dry run complete.[/yellow]")
+
+
+@app.command(name="li-connect")
+def li_connect(
+    profile_url: str = typer.Option(..., help="LinkedIn profile URL"),
+    note: str = typer.Option("", help="Connection note (max 300 chars)"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+):
+    """
+    Send LinkedIn connection request with optional note.
+
+    Limit: 20 connections/day (enforced — LinkedIn bans over-automation).
+    Use for Track A warm-up before sending CV/email.
+
+    Requires: LINKEDIN_EMAIL, LINKEDIN_PASSWORD in .env
+    Setup: pip install playwright && playwright install chromium
+    """
+    import asyncio
+    result = asyncio.run(linkedin_agent.send_connection_request(profile_url, note, dry_run=dry_run))
+    status = result.get("status") if result else "error"
+    if status == "sent":
+        console.print(f"[green]Connection request sent.[/green]")
+    elif status == "dry_run":
+        console.print("[yellow]Dry run complete.[/yellow]")
+    elif status == "limit_reached":
+        console.print("[red]Daily limit reached (20/day). Try tomorrow.[/red]")
+    else:
+        console.print(f"[yellow]{status}[/yellow]")
+
+
+@app.command(name="li-message")
+def li_message(
+    profile_url: str = typer.Option(..., help="LinkedIn profile URL"),
+    message: str = typer.Option(..., help="Message text"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+):
+    """
+    Send LinkedIn message to existing connection.
+
+    Limit: 5 messages/day (enforced).
+    Send AFTER connection accepted (2-3 day wait).
+
+    Requires: LINKEDIN_EMAIL, LINKEDIN_PASSWORD in .env
+    Setup: pip install playwright && playwright install chromium
+    """
+    import asyncio
+    result = asyncio.run(linkedin_agent.send_message(profile_url, message, dry_run=dry_run))
+    status = result.get("status") if result else "error"
+    if status == "sent":
+        console.print(f"[green]Message sent.[/green]")
+    elif status == "dry_run":
+        console.print("[yellow]Dry run complete.[/yellow]")
+    elif status == "limit_reached":
+        console.print("[red]Daily limit reached (5 messages/day). Try tomorrow.[/red]")
+
+    stats = linkedin_agent.get_sent_stats()
+    console.print(f"\nToday: {stats['connections_sent']} connects, {stats['messages_sent']} messages")
+
+
+@app.command()
+def replies():
+    """
+    Check which outreach emails got replies (Gmail OAuth required).
+
+    Cross-references sent_emails.jsonl with Gmail inbox.
+    Shows which companies have replied — move them to 'replied' status.
+    """
+    try:
+        results = gmail_oauth.check_replies()
+    except Exception as e:
+        console.print(f"[red]Gmail OAuth not set up:[/red] {e}")
+        raise typer.Exit(1)
+
+    if not results:
+        console.print("[yellow]No sent emails logged yet.[/yellow]")
+        raise typer.Exit(0)
+
+    replied = [r for r in results if r["replied"]]
+    waiting = [r for r in results if not r["replied"]]
+
+    console.print(f"\n[bold]── Reply Tracker ──[/bold]\n")
+    console.print(f"[green]Replied ({len(replied)}):[/green]")
+    for r in replied:
+        console.print(f"  ✓ {r['to']:<35} {r['subject'][:40]}")
+
+    console.print(f"\n[yellow]No reply yet ({len(waiting)}):[/yellow]")
+    for r in waiting:
+        sent = r.get("sent_at", "")[:10]
+        console.print(f"  · {r['to']:<35} sent {sent}")
 
 
 if __name__ == "__main__":
