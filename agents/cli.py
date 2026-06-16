@@ -582,55 +582,78 @@ def lookup(
 
 @app.command(name="x-research")
 def x_research(
-    username: str = typer.Option(..., help="X @handle to research e.g. 'paulg'"),
+    company: str = typer.Option(..., help="Company name e.g. 'Acme Capital'"),
+    role: str = typer.Option("CEO/CTO/Founder", help="Target role"),
 ):
     """
-    Research X profile + find best tweet to reply to before cold email.
+    Generate Grok prompt to find prospect tweet URL (Free tier workflow).
 
-    Warm-up strategy: reply with technical insight → wait 2-3 days → send email.
-    Reply rates 3-5x higher vs pure cold email.
+    X Free tier = write-only. Use Grok at x.com/grok to find tweet URL,
+    then run x-reply with that URL.
 
-    Requires: X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET in .env
+    Workflow:
+      1. python cli.py x-research --company "Acme Capital"
+      2. Paste the prompt into Grok (x.com/grok)
+      3. Grok gives you tweet URL
+      4. python cli.py x-reply --tweet-url <url> --message "..." --prospect "Acme Capital"
     """
-    result = x_agent.research_prospect_x(username)
-    if "error" in result:
-        console.print(f"[red]{result['error']}[/red]")
-        raise typer.Exit(1)
-
-    p = result["profile"]
-    console.print(f"\n[bold]@{p['username']}[/bold] — {p['name']}")
-    console.print(f"  Bio:       {p['description']}")
-    console.print(f"  Location:  {p['location']}")
-    console.print(f"  Followers: {p['followers']:,}")
-
-    best = result.get("best_tweet_to_reply")
-    if best:
-        console.print(f"\n[bold]Best tweet to reply:[/bold]")
-        console.print(f"  {best['text'][:120]}")
-        console.print(f"  {best['url']}")
-        console.print(f"  ♥ {best['likes']}  💬 {best['replies']}")
-    console.print(f"\n[bold]Warm-up:[/bold] {result['warm_up_strategy']}")
+    prompt = x_agent.grok_research_prompt(company, role)
+    console.print(f"\n[bold]── Grok Research Prompt ──[/bold]\n")
+    console.print(Panel(prompt, title=f"Paste into x.com/grok", border_style="yellow"))
+    console.print("\n[dim]After Grok replies → copy tweet URL → run x-reply[/dim]")
 
 
 @app.command(name="x-reply")
 def x_reply(
-    tweet_url: str = typer.Option(..., help="URL of tweet to reply to"),
+    tweet_url: str = typer.Option(..., "--tweet-url", help="Tweet URL e.g. https://x.com/user/status/123"),
     message: str = typer.Option(..., help="Reply text (max 280 chars)"),
+    prospect: str = typer.Option("", help="Prospect name for logging"),
     dry_run: bool = typer.Option(False, "--dry-run"),
 ):
     """
-    Reply to a tweet for warm-up outreach.
+    Reply to tweet for warm-up outreach (Free tier — works with $0 X API).
 
-    Best practice: genuine technical insight, no pitch.
-    Wait 2-3 days then send cold email referencing 'saw your tweet about X'.
+    Best practice: genuine technical insight first, no pitch.
+    Wait 2-3 days → send email referencing 'saw your tweet about X'.
+
+    Workflow:
+      1. x-research --company "Acme" → get Grok prompt
+      2. Grok gives tweet URL
+      3. x-reply --tweet-url <url> --message "..." --prospect "Acme"
+      4. Wait 2-3 days → email command
+
+    Requires: X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET in .env
+    """
+    result = x_agent.post_reply(tweet_url, message, prospect=prospect, dry_run=dry_run)
+    if result and result.get("status") == "replied":
+        console.print(f"[green]Replied → {result.get('reply_url')}[/green]")
+        console.print(f"[dim]Next: wait 2-3 days, then run email command for {prospect or 'prospect'}[/dim]")
+    elif result and result.get("status") == "dry_run":
+        console.print("[yellow]Dry run complete.[/yellow]")
+    elif result and result.get("status") == "limit_reached":
+        console.print("[red]Daily limit reached (15/day).[/red]")
+
+    stats = x_agent.get_reply_stats()
+    console.print(f"\nToday: {stats['replies_sent']} replies, {stats['replies_remaining']} remaining")
+
+
+@app.command(name="x-post")
+def x_post(
+    message: str = typer.Option(..., help="Tweet text (max 280 chars)"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+):
+    """
+    Post original tweet — thought leadership, not outreach.
+
+    Use for: Rust/AI insights, open source work, industry takes.
+    Builds credibility before prospect sees your reply.
 
     Requires: X_* keys in .env
     """
-    tweet_id = tweet_url.rstrip("/").split("/")[-1]
-    result = x_agent.post_reply(tweet_id, message, dry_run=dry_run)
-    if result and result.get("status") == "replied":
-        console.print(f"[green]Replied.[/green]")
-    elif result and result.get("status") == "dry_run":
+    result = x_agent.post_tweet(message, dry_run=dry_run)
+    if result.get("status") == "posted":
+        console.print(f"[green]Posted → {result.get('url')}[/green]")
+    elif result.get("status") == "dry_run":
         console.print("[yellow]Dry run complete.[/yellow]")
 
 

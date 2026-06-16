@@ -14,3 +14,7 @@ target/
 # Secrets / local DB
 *.db
 .env
+
+# OAuth tokens — never commit
+credentials.json
+token.json
