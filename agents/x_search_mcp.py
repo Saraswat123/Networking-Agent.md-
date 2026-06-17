@@ -1,102 +1,104 @@
 #!/usr/bin/env python3.11
 """
-X (Twitter) Search MCP Server — uses twikit scraping, no API key needed.
+X Search MCP Server — uses DuckDuckGo to find prospect X handles and profiles.
+
+twikit scraping is broken (X anti-bot changes). This approach:
+  1. Find prospect's X handle via DuckDuckGo search
+  2. Return profile URL so you can browse their recent tweets
+  3. Use x_agent.grok_research_prompt() for finding specific tweet URLs
 
 Tools:
-  search_tweets(query, limit)     — find tweets matching query
-  get_user_tweets(username, limit) — recent tweets from a specific user
-  find_prospect_tweet(company, role) — find tweet URL for outreach warm-up
-
-Usage:
-  python3.11 agents/x_search_mcp.py
-
-Register:
-  claude mcp add x-search -- python3.11 /Users/aitsgroup/networking-agent/agents/x_search_mcp.py
+  find_prospect_handle(name, company)   — find someone's X handle
+  search_x_profiles(query)             — find X profiles matching query
+  web_search(query)                    — general DuckDuckGo search for pipeline
 """
 
 import asyncio
 import json
-import os
-import sys
+import re
 from pathlib import Path
 
-from dotenv import load_dotenv
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp import types
 
-load_dotenv(Path(__file__).parent.parent / ".env")
-
-COOKIES_PATH = Path(__file__).parent.parent / "x_twikit_cookies.json"
-
 app = Server("x-search")
 
-_client = None
+
+def _ddgs_search(query: str, max_results: int = 10) -> list[dict]:
+    try:
+        from ddgs import DDGS
+        return list(DDGS().text(query, max_results=max_results))
+    except Exception as e:
+        return [{"error": str(e)}]
 
 
-async def _get_client():
-    global _client
-    if _client is not None:
-        return _client
-
-    from twikit import Client
-    c = Client("en-US")
-
-    if COOKIES_PATH.exists():
-        c.load_cookies(str(COOKIES_PATH))
-    else:
-        username = os.environ.get("X_USERNAME", "")
-        email = os.environ.get("X_EMAIL", "")
-        password = os.environ.get("X_PASSWORD", "")
-        if not (username and email and password):
-            raise RuntimeError(
-                "Set X_USERNAME, X_EMAIL, X_PASSWORD in .env for twikit login\n"
-                "Or run x_twikit_login.py once to save cookies."
-            )
-        await c.login(auth_info_1=username, auth_info_2=email, password=password)
-        c.save_cookies(str(COOKIES_PATH))
-
-    _client = c
-    return c
+def _extract_x_handle(results: list[dict]) -> list[dict]:
+    """Filter results that look like X profile URLs."""
+    handles = []
+    seen = set()
+    for r in results:
+        url = r.get("href", "")
+        title = r.get("title", "")
+        body = r.get("body", "")
+        # Match twitter.com/username or x.com/username (not /status/, /search, /i/)
+        m = re.search(r"(?:twitter\.com|x\.com)/([A-Za-z0-9_]{1,50})(?:/|$)", url)
+        if m:
+            handle = m.group(1)
+            if handle.lower() in {"search", "i", "home", "explore", "notifications", "messages", "hashtag"}:
+                continue
+            if handle not in seen:
+                seen.add(handle)
+                handles.append({
+                    "handle": f"@{handle}",
+                    "profile_url": f"https://x.com/{handle}",
+                    "source_title": title[:100],
+                    "snippet": body[:150],
+                })
+    return handles
 
 
 @app.list_tools()
 async def list_tools() -> list[types.Tool]:
     return [
         types.Tool(
-            name="search_tweets",
-            description="Search X (Twitter) for tweets matching a query. Useful for finding prospect tweets before outreach.",
+            name="find_prospect_handle",
+            description=(
+                "Find a person's X (Twitter) handle using their name and company. "
+                "Returns profile URL so you can browse their recent tweets for outreach warm-up."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string", "description": "Search query e.g. 'AI automation wealth management'"},
-                    "limit": {"type": "integer", "description": "Max results (default 10)", "default": 10},
+                    "name": {"type": "string", "description": "Person's full name e.g. 'John Smith'"},
+                    "company": {"type": "string", "description": "Company name e.g. 'Vermeer Capital'"},
+                    "role": {"type": "string", "description": "Their role e.g. 'CEO'", "default": ""},
+                },
+                "required": ["name", "company"],
+            },
+        ),
+        types.Tool(
+            name="search_x_profiles",
+            description="Find X/Twitter profiles matching a search query. Useful for finding CTOs, founders, investors.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "e.g. 'wealth management founder UK Twitter'"},
+                    "max_results": {"type": "integer", "default": 8},
                 },
                 "required": ["query"],
             },
         ),
         types.Tool(
-            name="get_user_tweets",
-            description="Get recent tweets from a specific X user by username. Use to find a good tweet to reply to.",
+            name="web_search",
+            description="General DuckDuckGo web search. Use for company research, finding contact emails, news.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "username": {"type": "string", "description": "X username without @ e.g. 'elonmusk'"},
-                    "limit": {"type": "integer", "description": "Max tweets to fetch (default 10)", "default": 10},
+                    "query": {"type": "string", "description": "Search query"},
+                    "max_results": {"type": "integer", "default": 8},
                 },
-                "required": ["username"],
-            },
-        ),
-        types.Tool(
-            name="find_prospect_tweet",
-            description="Find a recent tweet from a company's CEO/CTO/Founder to use as outreach warm-up target.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "company": {"type": "string", "description": "Company name"},
-                    "role": {"type": "string", "description": "Role to search for (default: CEO OR CTO OR Founder)", "default": "CEO OR CTO OR Founder"},
-                },
-                "required": ["company"],
+                "required": ["query"],
             },
         ),
     ]
@@ -104,71 +106,42 @@ async def list_tools() -> list[types.Tool]:
 
 @app.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
-    try:
-        client = await _get_client()
-    except Exception as e:
-        return [types.TextContent(type="text", text=f"X auth error: {e}")]
+    if name == "find_prospect_handle":
+        person = arguments.get("name", "")
+        company = arguments.get("company", "")
+        role = arguments.get("role", "")
+        role_str = f"{role} " if role else ""
+        query = f'"{person}" {role_str}"{company}" Twitter OR X.com site:twitter.com OR site:x.com OR "@{person.split()[0]}"'
+        raw = await asyncio.get_event_loop().run_in_executor(None, lambda: _ddgs_search(query, 10))
+        handles = _extract_x_handle(raw)
+        if not handles:
+            # Broader fallback
+            query2 = f'{person} {company} Twitter'
+            raw2 = await asyncio.get_event_loop().run_in_executor(None, lambda: _ddgs_search(query2, 10))
+            handles = _extract_x_handle(raw2)
+        result = {
+            "person": person,
+            "company": company,
+            "handles_found": handles,
+            "note": "Visit profile_url to find recent tweets. Use x-reply CLI to reply once you have tweet URL.",
+        }
+        return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
 
-    if name == "search_tweets":
+    elif name == "search_x_profiles":
+        query = arguments["query"] + " site:twitter.com OR site:x.com"
+        max_r = arguments.get("max_results", 8)
+        raw = await asyncio.get_event_loop().run_in_executor(None, lambda: _ddgs_search(query, max_r))
+        handles = _extract_x_handle(raw)
+        return [types.TextContent(type="text", text=json.dumps(handles, indent=2))]
+
+    elif name == "web_search":
         query = arguments["query"]
-        limit = arguments.get("limit", 10)
-        try:
-            results = await client.search_tweet(query, product="Latest", count=limit)
-            tweets = []
-            for t in results:
-                tweets.append({
-                    "url": f"https://x.com/{t.user.screen_name}/status/{t.id}",
-                    "user": t.user.screen_name,
-                    "name": t.user.name,
-                    "text": t.text[:280],
-                    "likes": t.favorite_count,
-                    "retweets": t.retweet_count,
-                    "created_at": str(t.created_at),
-                })
-            return [types.TextContent(type="text", text=json.dumps(tweets, indent=2))]
-        except Exception as e:
-            return [types.TextContent(type="text", text=f"Search error: {e}")]
-
-    elif name == "get_user_tweets":
-        username = arguments["username"].lstrip("@")
-        limit = arguments.get("limit", 10)
-        try:
-            user = await client.get_user_by_screen_name(username)
-            tweets_obj = await client.get_user_tweets(user.id, tweet_type="Tweets", count=limit)
-            tweets = []
-            for t in tweets_obj:
-                tweets.append({
-                    "url": f"https://x.com/{username}/status/{t.id}",
-                    "text": t.text[:280],
-                    "likes": t.favorite_count,
-                    "retweets": t.retweet_count,
-                    "created_at": str(t.created_at),
-                })
-            return [types.TextContent(type="text", text=json.dumps(tweets, indent=2))]
-        except Exception as e:
-            return [types.TextContent(type="text", text=f"Error fetching @{username} tweets: {e}")]
-
-    elif name == "find_prospect_tweet":
-        company = arguments["company"]
-        role = arguments.get("role", "CEO OR CTO OR Founder")
-        query = f"{company} ({role}) AI OR tech OR automation OR product"
-        try:
-            results = await client.search_tweet(query, product="Latest", count=5)
-            tweets = []
-            for t in results:
-                tweets.append({
-                    "url": f"https://x.com/{t.user.screen_name}/status/{t.id}",
-                    "user": f"@{t.user.screen_name}",
-                    "name": t.user.name,
-                    "bio": getattr(t.user, "description", ""),
-                    "text": t.text[:280],
-                    "likes": t.favorite_count,
-                    "created_at": str(t.created_at),
-                    "use_for_reply": True,
-                })
-            return [types.TextContent(type="text", text=json.dumps(tweets, indent=2))]
-        except Exception as e:
-            return [types.TextContent(type="text", text=f"Search error for {company}: {e}")]
+        max_r = arguments.get("max_results", 8)
+        results = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: _ddgs_search(query, max_r)
+        )
+        clean = [{"url": r.get("href", ""), "title": r.get("title", ""), "snippet": r.get("body", "")[:200]} for r in results]
+        return [types.TextContent(type="text", text=json.dumps(clean, indent=2))]
 
     return [types.TextContent(type="text", text=f"Unknown tool: {name}")]
 
