@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Optional
 
 OUTPUT_DIR = Path(__file__).parent / "output" / "linkedin"
+SESSION_PATH = Path(__file__).parent.parent / "linkedin_session.json"
 SENT_LOG = OUTPUT_DIR / "sent.jsonl"
 
 # Hard rate limits — DO NOT exceed or risk ban
@@ -96,22 +97,57 @@ async def _get_browser_page():
         raise ValueError("Set LINKEDIN_EMAIL and LINKEDIN_PASSWORD in .env")
 
     pw = await async_playwright().start()
-    browser = await pw.chromium.launch(headless=True)
-    context = await browser.new_context(
-        user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+    browser = await pw.chromium.launch(
+        headless=True,
+        args=["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"],
     )
+
+    ctx_kwargs = dict(
+        user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        viewport={"width": 1280, "height": 800},
+        locale="en-US",
+    )
+    if SESSION_PATH.exists():
+        ctx_kwargs["storage_state"] = str(SESSION_PATH)
+
+    context = await browser.new_context(**ctx_kwargs)
+    await context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
     page = await context.new_page()
 
-    # Login
-    await page.goto("https://www.linkedin.com/login")
-    await page.fill("#username", email)
-    await page.fill("#password", password)
-    await page.click("[type=submit]")
-    await page.wait_for_load_state("networkidle")
+    if SESSION_PATH.exists():
+        # Session exists — navigate directly to feed
+        await page.goto("https://www.linkedin.com/feed/", wait_until="domcontentloaded", timeout=30000)
+        if "feed" in page.url or "mynetwork" in page.url:
+            return page, browser, pw
+        # Session expired — fall through to login
+        print("  [linkedin] Session expired, re-login needed. Run: python3 agents/linkedin_setup.py")
 
-    if "checkpoint" in page.url or "challenge" in page.url:
+    # No session or expired — login with credentials
+    await page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded", timeout=60000)
+
+    try:
+        email_box = page.get_by_role("textbox", name="Email or phone").last
+        await email_box.wait_for(state="visible", timeout=8000)
+        await email_box.click()
+        await email_box.type(email, delay=30)
+    except Exception:
+        await page.screenshot(path="/tmp/linkedin_debug.png")
+        raise RuntimeError(f"LinkedIn login form not found. URL: {page.url}")
+
+    pass_box = page.get_by_label("Password", exact=True).last
+    await pass_box.click()
+    await pass_box.type(password, delay=30)
+    await pass_box.press("Enter")
+
+    try:
+        await page.wait_for_url("**/feed/**", timeout=20000)
+    except Exception:
+        await page.wait_for_load_state("domcontentloaded", timeout=15000)
+
+    if any(x in page.url for x in ["checkpoint", "challenge", "verification", "login"]):
         raise RuntimeError(
-            "LinkedIn security checkpoint. Log in manually once, then retry."
+            "LinkedIn security challenge detected.\n"
+            "Fix: run  python3 agents/linkedin_setup.py  to log in manually and save session."
         )
 
     return page, browser, pw

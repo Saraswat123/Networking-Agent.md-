@@ -18,3 +18,5 @@ target/
 # OAuth tokens — never commit
 credentials.json
 token.json
+x_token.json
+linkedin_session.json

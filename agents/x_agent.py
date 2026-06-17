@@ -1,78 +1,139 @@
 """
-X (Twitter) Agent — Free tier (write-only).
+X (Twitter) Agent — Free tier, OAuth 2.0 PKCE (required for apps post-March 2023).
 
-Free tier = POST tweets only. Cannot search or read others' timelines.
+OAuth 1.0a is blocked on new X apps. This uses OAuth 2.0 User Context (PKCE).
 
-Workflow:
-  1. Find prospect tweet manually (browse X) or use Grok to find URL
-  2. Pass tweet URL to post_reply() → agent replies
-  3. Wait 2-3 days → send email
-
-Use Grok prompt:
-  "Find recent tweets by [name/company] CEO/CTO about AI, technology, or business challenges.
-   Give me the tweet URL to reply to."
+First run: browser opens → authorize → paste redirect URL → x_token.json saved.
+After that: automatic token refresh, no browser needed.
 
 Setup:
-  developer.twitter.com → your app → Keys and tokens
+  developer.twitter.com → your app → User authentication settings
   Add to .env:
-    X_API_KEY=...       (Consumer Key)
-    X_API_SECRET=...    (Consumer Key Secret)
-    X_ACCESS_TOKEN=...  (Access Token)
-    X_ACCESS_SECRET=... (Access Token Secret)
+    X_OAUTH2_CLIENT_ID=...      (OAuth 2.0 Client ID)
+    X_OAUTH2_CLIENT_SECRET=...  (Client Secret)
 
 Free tier limits:
-  Write: 1,500 tweets/mo (includes replies)
-  Read: none (use Grok/browse manually)
+  Write: 500 tweets/mo (includes replies)
+  Read: none (use Grok or browse manually)
+
+Workflow:
+  1. x-research --company "Acme" → prints Grok prompt
+  2. Paste into x.com/grok → get tweet URL
+  3. x-reply --tweet-url "https://x.com/user/status/ID" --message "..."
+  4. Wait 2-3 days → email
 """
 
 import json
 import os
 import re
+import webbrowser
 from datetime import datetime, date
 from pathlib import Path
 from typing import Optional
 
+TOKEN_PATH = Path(__file__).parent.parent / "x_token.json"
 OUTPUT_DIR = Path(__file__).parent / "output" / "x_replies"
 REPLIES_LOG = OUTPUT_DIR / "replies_sent.jsonl"
 
-MAX_REPLIES_PER_DAY = 15  # stay well under 1500/mo limit
+REDIRECT_URI = "http://127.0.0.1:8080"
+SCOPES = ["tweet.read", "tweet.write", "users.read", "offline.access"]
+
+MAX_REPLIES_PER_DAY = 15
 
 
-def _client():
-    """Get authenticated Tweepy client."""
+def _get_client():
+    """
+    Get authenticated Tweepy Client via OAuth 2.0 PKCE.
+    First run opens browser for authorization.
+    Subsequent runs auto-refresh token from x_token.json.
+    """
     try:
         import tweepy
     except ImportError:
         raise ImportError("Run: pip3 install tweepy")
 
-    api_key    = os.environ.get("X_API_KEY", "")
-    api_secret = os.environ.get("X_API_SECRET", "")
-    access_tok = os.environ.get("X_ACCESS_TOKEN", "")
-    access_sec = os.environ.get("X_ACCESS_SECRET", "")
+    client_id = os.environ.get("X_OAUTH2_CLIENT_ID", "")
+    client_secret = os.environ.get("X_OAUTH2_CLIENT_SECRET", "")
 
-    if not all([api_key, api_secret, access_tok, access_sec]):
+    if not client_id or not client_secret:
         raise ValueError(
-            "Set X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET in .env\n"
-            "Get keys at: developer.twitter.com → your app → Keys and tokens"
+            "Set X_OAUTH2_CLIENT_ID and X_OAUTH2_CLIENT_SECRET in .env\n"
+            "Find them at: developer.twitter.com → your app → User authentication settings"
         )
 
-    return tweepy.Client(
-        consumer_key=api_key,
-        consumer_secret=api_secret,
-        access_token=access_tok,
-        access_token_secret=access_sec,
-        wait_on_rate_limit=True,
+    handler = tweepy.OAuth2UserHandler(
+        client_id=client_id,
+        redirect_uri=REDIRECT_URI,
+        scope=SCOPES,
+        client_secret=client_secret,
     )
+
+    token_data = None
+    if TOKEN_PATH.exists():
+        try:
+            token_data = json.loads(TOKEN_PATH.read_text())
+        except Exception:
+            token_data = None
+
+    if token_data and token_data.get("refresh_token"):
+        try:
+            new_token = handler.refresh_token(
+                "https://api.twitter.com/2/oauth2/token",
+                refresh_token=token_data["refresh_token"],
+            )
+            TOKEN_PATH.write_text(json.dumps(new_token, indent=2))
+            return tweepy.Client(access_token=new_token["access_token"])
+        except Exception:
+            # Refresh failed — re-auth
+            token_data = None
+
+    # Full PKCE browser flow — auto-capture redirect via local server
+    auth_url = handler.get_authorization_url()
+    print("\n[x] Opening browser for X authorization...")
+    webbrowser.open(auth_url)
+    print("Browser opened. Authorize the app on X...")
+
+    # Start local server to catch redirect automatically
+    import threading
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+
+    captured = {}
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            captured["url"] = f"http://127.0.0.1:8080{self.path}"
+            self.send_response(200)
+            self.send_header("Content-type", "text/html")
+            self.end_headers()
+            self.wfile.write(b"<h2>X Authorization complete. You can close this tab.</h2>")
+
+        def log_message(self, *args):
+            pass  # silence server logs
+
+    server = HTTPServer(("127.0.0.1", 8080), _Handler)
+    print("[x] Waiting for browser callback on http://127.0.0.1:8080 ...")
+    server.handle_request()  # blocks until one request received
+    server.server_close()
+
+    redirect_response = captured.get("url", "")
+    if not redirect_response or "code=" not in redirect_response:
+        raise RuntimeError(
+            f"[x] Auth failed or browser did not redirect correctly.\n"
+            f"Got: {redirect_response}"
+        )
+
+    token = handler.fetch_token(redirect_response)
+    TOKEN_PATH.write_text(json.dumps(token, indent=2))
+    print(f"[x] Token saved → {TOKEN_PATH}")
+
+    return tweepy.Client(access_token=token["access_token"])
 
 
 def _extract_tweet_id(tweet_url_or_id: str) -> str:
-    """Extract numeric tweet ID from URL or return as-is if already ID."""
-    # Handle URLs like https://twitter.com/user/status/1234567890
-    # or https://x.com/user/status/1234567890
+    """Extract numeric tweet ID from URL or return as-is."""
     match = re.search(r"/status/(\d+)", tweet_url_or_id)
     if match:
         return match.group(1)
-    # Already a numeric ID
     if tweet_url_or_id.strip().isdigit():
         return tweet_url_or_id.strip()
     raise ValueError(
@@ -82,27 +143,20 @@ def _extract_tweet_id(tweet_url_or_id: str) -> str:
 
 
 def _check_daily_limit() -> bool:
-    """Enforce daily reply cap."""
     if not REPLIES_LOG.exists():
         return True
     today = date.today().isoformat()
-    count = 0
-    with open(REPLIES_LOG) as f:
-        for line in f:
-            try:
-                e = json.loads(line)
-                if e.get("date") == today:
-                    count += 1
-            except Exception:
-                pass
+    count = sum(
+        1 for line in open(REPLIES_LOG)
+        if json.loads(line).get("date") == today
+    )
     if count >= MAX_REPLIES_PER_DAY:
-        print(f"  [x] Daily limit {MAX_REPLIES_PER_DAY} reached. Try tomorrow.")
+        print(f"  [x] Daily limit {MAX_REPLIES_PER_DAY} reached.")
         return False
     return True
 
 
 def _log_reply(tweet_id: str, reply_id: str, text: str, prospect: str = ""):
-    """Log reply to file."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     entry = {
         "tweet_id": tweet_id,
@@ -123,21 +177,18 @@ def post_reply(
     dry_run: bool = False,
 ) -> dict:
     """
-    Reply to tweet. Works on Free tier.
+    Reply to tweet. Works on Free tier with OAuth 2.0.
 
     Args:
         tweet_url_or_id: Full URL or numeric tweet ID
-        reply_text: Max 280 chars. Lead with insight, not a pitch.
-        prospect: Company/person name for logging (optional)
+        reply_text: Max 280 chars. Lead with insight, not pitch.
+        prospect: Company/person name for logging
         dry_run: Print without posting
-
-    Returns:
-        {"status": "replied"|"dry_run"|"limit_reached", "reply_id": ..., "url": ...}
 
     Example:
         post_reply(
-            "https://x.com/cto_name/status/1234567890",
-            "The latency gains from async batching are real — we saw similar numbers moving from polling to event-driven ingestion. What throughput are you hitting at peak?",
+            "https://x.com/cto/status/1234567890",
+            "The async batching approach trades latency for throughput — solid for batch workloads. What's your P99 at peak?",
             prospect="Acme Corp CTO"
         )
     """
@@ -155,7 +206,7 @@ def post_reply(
     if len(reply_text) > 280:
         reply_text = reply_text[:277] + "..."
 
-    client = _client()
+    client = _get_client()
     result = client.create_tweet(text=reply_text, in_reply_to_tweet_id=tweet_id)
     reply_id = str(result.data.get("id", ""))
 
@@ -163,7 +214,7 @@ def post_reply(
 
     reply_url = f"https://x.com/i/web/status/{reply_id}"
     print(f"  [x] Replied → {reply_url}")
-    print(f"  [x] Next step: wait 2-3 days, then send email to {prospect or 'prospect'}")
+    print(f"  [x] Next: wait 2-3 days → email {prospect or 'prospect'}")
 
     return {
         "status": "replied",
@@ -183,7 +234,7 @@ def post_tweet(text: str, dry_run: bool = False) -> dict:
     if len(text) > 280:
         text = text[:277] + "..."
 
-    client = _client()
+    client = _get_client()
     result = client.create_tweet(text=text)
     tweet_id = str(result.data.get("id", ""))
     url = f"https://x.com/i/web/status/{tweet_id}"
@@ -192,15 +243,13 @@ def post_tweet(text: str, dry_run: bool = False) -> dict:
 
 
 def get_reply_stats() -> dict:
-    """How many replies sent today and remaining."""
     today = date.today().isoformat()
     count = 0
     if REPLIES_LOG.exists():
         with open(REPLIES_LOG) as f:
             for line in f:
                 try:
-                    e = json.loads(line)
-                    if e.get("date") == today:
+                    if json.loads(line).get("date") == today:
                         count += 1
                 except Exception:
                     pass
@@ -208,20 +257,18 @@ def get_reply_stats() -> dict:
         "today": today,
         "replies_sent": count,
         "replies_remaining": max(0, MAX_REPLIES_PER_DAY - count),
-        "monthly_budget": 1500,
+        "monthly_budget": 500,
     }
 
 
-# ── Grok prompt helpers ──────────────────────────────────────────────────────
-
 def grok_research_prompt(company: str, role: str = "CEO/CTO/Founder") -> str:
     """
-    Generate a Grok prompt to find tweet URL for a prospect.
+    Generate Grok prompt to find prospect tweet URL.
     Paste output into Grok at x.com/grok.
 
     Usage:
-        prompt = grok_research_prompt("Acme Capital", "Managing Partner")
-        print(prompt)  # paste into Grok
+        print(grok_research_prompt("Acme Capital", "Managing Partner"))
+        # paste into Grok
     """
     return f"""Find a recent tweet (last 30 days) by the {role} of {company} about any of:
 - AI, machine learning, or automation
@@ -235,3 +282,17 @@ Give me:
 3. The tweet text (so I can write a relevant reply)
 
 Search X/Twitter for: {company} {role} site:twitter.com OR site:x.com"""
+
+
+def authorize():
+    """
+    Run OAuth 2.0 PKCE authorization flow.
+    Opens browser → user authorizes → paste redirect URL → token saved.
+
+    Call this once to set up: python -c "from x_agent import authorize; authorize()"
+    """
+    if TOKEN_PATH.exists():
+        TOKEN_PATH.unlink()
+        print("[x] Cleared old token, starting fresh auth.")
+    _get_client()
+    print("[x] Authorization complete. x_token.json saved.")
