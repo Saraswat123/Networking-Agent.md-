@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
-import anthropic
+import claude_cli as anthropic
 
 PROFILE_PATH = Path(__file__).parent / "profile.json"
 OUTPUT_DIR = Path(__file__).parent / "output" / "emails"

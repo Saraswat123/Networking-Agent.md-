@@ -31,7 +31,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-import anthropic
+import claude_cli as anthropic
 import requests
 
 import obsidian_sync

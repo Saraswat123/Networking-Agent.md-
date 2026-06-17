@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-import anthropic
+import claude_cli as anthropic
 import requests
 
 OUTPUT_DIR = Path(__file__).parent / "output" / "background"
@@ -91,7 +91,7 @@ def extract_website(notes: str) -> Optional[str]:
 # ── Claude agent ──────────────────────────────────────────────────────────────
 
 async def agent_background_researcher(
-    client: anthropic.AsyncAnthropic,
+    client,
     company: str,
     prospect: dict,
     news: list[dict],

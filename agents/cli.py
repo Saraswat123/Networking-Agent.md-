@@ -43,9 +43,7 @@ console = Console()
 
 
 def require_api_key():
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        console.print("[red]Error:[/red] ANTHROPIC_API_KEY not set")
-        raise typer.Exit(1)
+    pass  # Claude Code CLI handles auth — no API key needed
 
 
 @app.command()
