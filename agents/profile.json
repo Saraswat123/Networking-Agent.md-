@@ -1,9 +1,10 @@
 {
   "name": "Saraswat Das",
   "email": "saraswatdas94@gmail.com",
-  "location": "India (Remote)",
+  "location": "Gurgaon, India (Remote OK)",
   "linkedin": "https://linkedin.com/in/saraswatdas",
   "github": "https://github.com/Saraswat123",
+  "twitter": "https://x.com/SaraswatDas13",
   "open_to": ["remote", "hybrid", "full-time", "contract"],
 
   "education": [
@@ -14,7 +15,42 @@
     }
   ],
 
-  "_note": "Three CV angles. cv_agent.py picks the right one based on JD role_type.",
+  "achievements": [
+    {
+      "title": "AICTE Innovation Design Entrepreneurship (IDE) Camp 2024",
+      "result": "Champion",
+      "context": "Top 20 innovators selected nationwide, India"
+    },
+    {
+      "title": "Youth India Conclave Innovation Challenge 2024",
+      "result": "Champion"
+    },
+    {
+      "title": "L&T Ideation Water Challenge 2024",
+      "result": "Top 3 Nationwide",
+      "context": "300+ teams competing across India"
+    },
+    {
+      "title": "Smart India Hackathon (SIH) 2023",
+      "result": "Runner-up",
+      "context": "500+ teams, Government of India national competition"
+    }
+  ],
+
+  "publications": [
+    {
+      "title": "The Convergence of Generative AI, AGI, LLM and NLP",
+      "url": "https://medium.com/@saraswatdas94/the-convergence-of-generative-ai-agi-llm-and-nlp-efaf9191b2ac",
+      "platform": "Medium"
+    },
+    {
+      "title": "Confronting the Paradoxes of Technological Advancement and Societal Equity",
+      "url": "https://medium.com/@saraswatdas94/confronting-the-paradoxes-of-technological-advancement-and-societal-equity-saraswat-das-e7d76e3bfc96",
+      "platform": "Medium"
+    }
+  ],
+
+  "_note": "Four CV angles. cv_agent.py picks the right one based on JD role_type.",
 
   "cv_profiles": {
 
@@ -175,12 +211,13 @@
         "Docker / Linux"
       ],
       "experience_bullets": [
+        "Built DVT-FOCIL integration library (Rust): enables DVT clusters (SSV Network, Obol Charon, Anchor) to participate in FOCIL inclusion list committees — censorship resistance for 15-25% of Ethereum stake running on distributed validators; addresses single-signer assumption gap in EIP-7805 spec",
+        "Implemented EIP-7805 FOCIL (Fork-Choice Enforced Inclusion Lists) in Rust targeting Ethereum Heze fork: 16-validator IL committee, fork-choice enforcement, censorship-resistant transaction inclusion — based on ethereum/consensus-specs",
+        "Built p2pflow: eBPF application for passive Ethereum p2p network monitoring — TCP flow tracking + RTT probing via kernel programs (Aya framework, Linux ≥5.8), reads perf event maps without modifying Geth/Lighthouse node processes",
         "Built protocol-engine-core: multi-crate Rust workspace — HotStuff 2-chain BFT consensus with full view-change/timeout path (NewViewMessage → NewViewCollector → leader rotation), QC threshold fires exactly once at f+1 boundary; 8-test view-change suite, 6 fault injection tests",
-        "Designed EIP-1559 priority mempool with bounded eviction: BTreeMap ordered by (priority_fee DESC, hash), O(1) pop_last on overflow, insert() returns bool reject signal; 5-test eviction suite + proptest fuzzing — eliminates OOM risk on long mempool runs",
-        "Implemented Ethereum Engine API (forkchoice_updated + PayloadAttributes → payload_id → get_payload round-trip): 14-test suite covering PayloadAttributes timestamp/randao, reorg detection, sync state transitions",
-        "Built LMD-GHOST fork choice with AggregateAttestation deduplication — prevents single validator inflating vote weight across replays; EIP-7805 FOCIL inclusion list enforcement; 10-test aggregation suite",
-        "Designed and shipped production MCP server in Rust: JSON-RPC 2.0 over stdio, 11 tool handlers, rmcp macro-based dispatch, tokio multi-thread runtime; compliance layer: sliding-window rate limiter (OnceLock Regex PII detection), per-call audit log with output fingerprinting",
-        "Built peer lifecycle manager: connection scoring, ban/backoff logic, RTT probe/pong with seq-based stale rejection, 64-sample ring buffer for latency tracking; wildcard prefix message broker with FilteredBroker pattern"
+        "Designed EIP-1559 priority mempool with bounded eviction: BTreeMap ordered by (priority_fee DESC, hash), O(1) pop_last on overflow; 5-test eviction suite + proptest fuzzing — eliminates OOM risk on long mempool runs",
+        "Implemented Ethereum Engine API (forkchoice_updated + PayloadAttributes → payload_id → get_payload round-trip): 14-test suite covering timestamp/randao, reorg detection, sync state transitions",
+        "Designed and shipped production MCP server in Rust: JSON-RPC 2.0 over stdio, 11 tool handlers, rmcp macro-based dispatch, tokio multi-thread runtime; compliance layer: sliding-window rate limiter, PII detection via OnceLock Regex, per-call audit log with output fingerprinting"
       ],
       "opening_lines": {
         "default": "Protocol engineer who ships in Rust. I work at the wire level — transport design, serialization, async dispatch, rate limiting. Production MCP server live.",
@@ -236,6 +273,46 @@
       "description": "Full-stack assessment system with AI scan detection. POST /api/scan-paper sends scanned sheets to Claude Vision — MCQ tick mark detection + handwriting OCR across 11 parameters, confidence scoring, structured JSON output. Replaces manual marking workflow.",
       "github": "https://github.com/Saraswat123/Rysen-Learning-System",
       "signal": "Production AI system replacing manual assessment workflow. Demonstrates Claude Vision API for document analysis at scale.",
+      "relevant_for": ["data_engineering", "ai_ml_infra"]
+    },
+    {
+      "name": "DVT-FOCIL Integration Library",
+      "tech": ["Rust", "EIP-7805", "FOCIL", "DVT", "SSV Network", "Obol Charon"],
+      "description": "Distributed Validator Technology integration for FOCIL (EIP-7805). Enables DVT clusters to participate in Fork-Choice Enforced Inclusion List committees — censorship resistance for 15-25% of Ethereum stake on distributed validators. Addresses the single-signer assumption gap in the base EIP-7805 spec.",
+      "github": "https://github.com/Saraswat123/dvt-focil",
+      "signal": "Ethereum consensus layer R&D — original contribution to censorship resistance infrastructure.",
+      "relevant_for": ["protocol_engineer"]
+    },
+    {
+      "name": "FOCIL — EIP-7805 Rust Implementation",
+      "tech": ["Rust", "Ethereum", "EIP-7805", "consensus-specs", "Heze fork"],
+      "description": "Rust implementation of EIP-7805 Fork-Choice Enforced Inclusion Lists targeting the Ethereum Heze fork. 16-validator IL committee, fork-choice enforcement rule, censorship-resistant transaction inclusion layer. Based on ethereum/consensus-specs.",
+      "github": "https://github.com/Saraswat123/focil",
+      "signal": "Implementing live Ethereum EIPs in production Rust — consensus layer engineering.",
+      "relevant_for": ["protocol_engineer"]
+    },
+    {
+      "name": "p2pflow — eBPF Ethereum P2P Monitor",
+      "tech": ["Rust", "eBPF", "Aya", "Linux kernel", "Ethereum", "Geth", "Lighthouse"],
+      "description": "eBPF application for passive Ethereum p2p network traffic monitoring. TCP flow tracking and RTT probing via kernel programs (Aya framework, Linux ≥5.8). Reads perf event maps in userspace — monitors Geth/Lighthouse p2p traffic without modifying node processes.",
+      "github": "https://github.com/Saraswat123/p2pflow",
+      "signal": "Kernel-level Ethereum network observability — rare combination of eBPF + Ethereum protocol knowledge.",
+      "relevant_for": ["protocol_engineer"]
+    },
+    {
+      "name": "Axiom Engine — ZK-Proof AI Agent Engine",
+      "tech": ["Rust", "ZK proofs", "TEE", "cryptographic execution integrity"],
+      "description": "Proof-native AI agent engine in Rust. Every answer comes with mathematical proof of correctness, cryptographic execution integrity, and ZK-verifiable computation. Solves AI hallucination at the verification layer — not prompt engineering.",
+      "github": "https://github.com/Saraswat123/axiom-engine",
+      "signal": "ZK + AI agent intersection — frontier research area combining formal verification with LLM outputs.",
+      "relevant_for": ["protocol_engineer", "rust_mcp", "ai_ml_infra"]
+    },
+    {
+      "name": "AquafySystems — IoT/AI Water Treatment",
+      "tech": ["IoT", "AI", "decentralized systems"],
+      "description": "Affordable decentralized greywater treatment using IoT and AI. Founded 2024, Bhubaneswar. Targets water management for 600M people in water-scarce areas. Government of India recognized.",
+      "github": "https://github.com/Saraswat123/AquafySystems-SIH-",
+      "signal": "SIH 2023 Runner-up (500+ teams). Government of India recognition. Real-world IoT/AI deployment.",
       "relevant_for": ["data_engineering", "ai_ml_infra"]
     }
   ],
