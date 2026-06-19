@@ -46,16 +46,23 @@ X_DAILY_LIMIT = 15
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 GITHUB_API = "https://api.github.com"
 
-# Target profiles for LinkedIn growth
-GITHUB_SEARCH_QUERIES = [
-    ("ethereum protocol rust", ""),
-    ("consensus protocol rust engineer", ""),
-    ("MCP model context protocol", ""),
-    ("p2p networking rust", ""),
-    ("AI agent infrastructure", ""),
-    ("LLM infrastructure engineer", ""),
-    ("ZK proof rust", ""),
-    ("distributed systems rust", ""),
+# LinkedIn search keywords — rotated daily for variety
+LINKEDIN_SEARCH_KEYWORDS = [
+    "protocol engineer ethereum",
+    "rust systems engineer",
+    "AI infrastructure engineer",
+    "blockchain protocol engineer",
+    "distributed systems engineer",
+    "LLM platform engineer",
+    "ZK proof engineer",
+    "ethereum core developer",
+    "MCP agent infrastructure",
+    "devtools engineer rust",
+    "p2p networking engineer",
+    "consensus protocol developer",
+    "AI founder startup",
+    "crypto protocol engineer",
+    "web3 infrastructure engineer",
 ]
 
 # X topics to engage with
@@ -268,59 +275,81 @@ async def run_linkedin_growth(dry_run: bool = False, limit: int = LINKEDIN_DAILY
         print(f"\n[linkedin] Daily limit reached ({limit}/day). Try tomorrow.")
         return
 
-    print(f"\n[linkedin] Sourcing targets (want {remaining} connections)...")
+    print(f"\n[linkedin] Sourcing targets via LinkedIn search (want {remaining} connections)...")
 
-    # Collect targets from GitHub
-    all_targets = []
-    for query, _ in GITHUB_SEARCH_QUERIES:
-        if len(all_targets) >= remaining * 3:
-            break
-        batch = find_github_engineers(query, limit=5)
-        # Only keep those with LinkedIn URL
-        for t in batch:
-            if t.get("linkedin_url") and t not in all_targets:
-                all_targets.append(t)
-        time.sleep(1)
-
-    print(f"  Found {len(all_targets)} targets with LinkedIn URLs")
-
-    if not all_targets:
-        print("  [linkedin] No LinkedIn-linked GitHub profiles found. Try manual targets.")
-        return
-
-    # Import LinkedIn agent
     sys.path.insert(0, str(Path(__file__).parent))
     import linkedin_agent
 
+    # Pick random keywords for today
+    keywords = random.sample(LINKEDIN_SEARCH_KEYWORDS, min(3, len(LINKEDIN_SEARCH_KEYWORDS)))
+
+    all_urls = []
+    for keyword in keywords:
+        print(f"  Searching: '{keyword}'")
+        if dry_run:
+            # In dry run, generate fake URLs for preview
+            all_urls += [f"https://linkedin.com/in/example-{keyword.replace(' ','-')}-{i}" for i in range(1, 4)]
+        else:
+            urls = await linkedin_agent.search_people(keyword, limit=10)
+            all_urls += urls
+            print(f"    Found {len(urls)} profiles")
+            await asyncio.sleep(random.uniform(5, 10))
+
+    # Deduplicate + shuffle
+    seen = set()
+    unique_urls = []
+    for url in all_urls:
+        if url not in seen:
+            seen.add(url)
+            unique_urls.append(url)
+    random.shuffle(unique_urls)
+
+    print(f"  Total unique profiles: {len(unique_urls)}")
+
     sent = 0
-    for target in all_targets:
+    for profile_url in unique_urls:
         if sent >= remaining:
             break
 
-        linkedin_url = target["linkedin_url"]
-        note = generate_linkedin_note(target)
+        # Generate a generic professional note (no profile details available from search)
+        note = _generate_generic_note()
 
-        print(f"\n  → {target['name']} ({target['company'] or 'unknown'})")
-        print(f"    {linkedin_url}")
-        print(f"    Note ({len(note)} chars): {note[:80]}...")
+        print(f"\n  → {profile_url}")
+        print(f"    Note: {note[:80]}...")
 
         if dry_run:
-            _log("connect", linkedin_url, "dry_run", "linkedin")
+            _log("connect", profile_url, "dry_run", "linkedin")
             sent += 1
             continue
 
-        result = await linkedin_agent.send_connection_request(linkedin_url, note=note)
+        result = await linkedin_agent.send_connection_request(profile_url, note=note)
         status = result.get("status", "error")
-        _log("connect", linkedin_url, status, "linkedin")
+        _log("connect", profile_url, status, "linkedin")
 
         if status == "sent":
             sent += 1
+        elif status == "limit_reached":
+            break
 
-        delay = random.uniform(30, 90)
-        print(f"    Waiting {delay:.0f}s before next...")
+        delay = random.uniform(45, 120)
+        print(f"    Waiting {delay:.0f}s...")
         await asyncio.sleep(delay)
 
     print(f"\n[linkedin] Done — {sent} connections sent today (total: {sent_today + sent}/{limit})")
+
+
+def _generate_generic_note() -> str:
+    """Pick a random professional connection note from a pool."""
+    notes = [
+        "Building Ethereum consensus tooling in Rust (FOCIL, DVT-FOCIL, eBPF P2P). Would love to connect with others in the protocol space.",
+        "Working on Rust protocol infra and AI agent systems. Always good to connect with engineers building at this layer.",
+        "Protocol engineer focused on Ethereum consensus and Rust systems. Keen to grow my network in this space.",
+        "Building AI infrastructure and Ethereum protocol tooling. Let's connect — always interested in what others are working on.",
+        "Rust systems engineer working on distributed consensus and LLM infrastructure. Would be great to connect.",
+        "Working on EIP-7805 FOCIL and ZK-proof AI verification. Interested in connecting with protocol engineers.",
+        "Building production MCP servers and Ethereum consensus clients in Rust. Would love to stay in touch.",
+    ]
+    return random.choice(notes)
 
 
 # ── X daily task ──────────────────────────────────────────────────────────────

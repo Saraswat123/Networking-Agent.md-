@@ -153,6 +153,47 @@ async def _get_browser_page():
     return page, browser, pw
 
 
+async def search_people(keyword: str, limit: int = 10) -> list[str]:
+    """
+    Search LinkedIn People for a job title/keyword.
+    Returns list of profile URLs to connect with.
+
+    Example: search_people("protocol engineer ethereum", limit=10)
+    """
+    page, browser, pw = await _get_browser_page()
+    try:
+        import urllib.parse
+        query = urllib.parse.quote(keyword)
+        search_url = f"https://www.linkedin.com/search/results/people/?keywords={query}&origin=GLOBAL_SEARCH_HEADER"
+        await page.goto(search_url, wait_until="domcontentloaded", timeout=30000)
+        await page.wait_for_timeout(3000)
+
+        profile_urls = []
+        # Grab all person result links
+        links = await page.locator("a.app-aware-link").all()
+        for link in links:
+            href = await link.get_attribute("href")
+            if href and "/in/" in href and "linkedin.com/in/" in href:
+                # Normalize URL — strip query params
+                clean = href.split("?")[0].rstrip("/")
+                if clean not in profile_urls:
+                    profile_urls.append(clean)
+            if len(profile_urls) >= limit * 2:
+                break
+
+        # Shuffle and return limit
+        import random
+        random.shuffle(profile_urls)
+        return profile_urls[:limit]
+
+    except Exception as e:
+        print(f"  [linkedin] search error: {e}")
+        return []
+    finally:
+        await browser.close()
+        await pw.stop()
+
+
 async def send_connection_request(profile_url: str, note: str = "", dry_run: bool = False) -> dict:
     """
     Send LinkedIn connection request with optional note (300 char max).
