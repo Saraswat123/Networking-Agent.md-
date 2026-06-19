@@ -46,34 +46,52 @@ X_DAILY_LIMIT = 15
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 GITHUB_API = "https://api.github.com"
 
-# LinkedIn search keywords — rotated daily for variety
+# LinkedIn search keywords — high-value decision makers first, then engineers
 LINKEDIN_SEARCH_KEYWORDS = [
-    "protocol engineer ethereum",
-    "rust systems engineer",
+    # Founders / CEOs — highest priority
+    "founder CEO AI startup",
+    "founder CTO AI infrastructure",
+    "CEO artificial intelligence company",
+    "co-founder AI agent startup",
+    "founder web3 startup",
+    "founder ethereum startup",
+    "CEO crypto blockchain startup",
+    # CTOs — technical decision makers
+    "CTO AI infrastructure startup",
+    "CTO blockchain crypto startup",
+    "CTO distributed systems",
+    "CTO rust systems",
+    "chief technology officer AI",
+    # VCs / Investors / Fund Managers
+    "venture capital AI fund",
+    "VC partner crypto web3",
+    "fund manager AI technology",
+    "managing partner AI venture",
+    "angel investor AI startup",
+    "principal VC fund AI",
+    "general partner blockchain fund",
+    # AI infrastructure engineers (peer network)
     "AI infrastructure engineer",
-    "blockchain protocol engineer",
-    "distributed systems engineer",
     "LLM platform engineer",
-    "ZK proof engineer",
-    "ethereum core developer",
-    "MCP agent infrastructure",
-    "devtools engineer rust",
-    "p2p networking engineer",
-    "consensus protocol developer",
-    "AI founder startup",
-    "crypto protocol engineer",
-    "web3 infrastructure engineer",
+    "protocol engineer ethereum",
+    "distributed systems engineer",
 ]
 
-# X topics to engage with
+# X topics to engage with — founder/VC/CTO tweets first, then technical
 X_ENGAGE_TOPICS = [
+    # High-value accounts post about these
+    "AI startup founder raised funding",
+    "AI infrastructure investment VC",
+    "ethereum protocol upgrade founder",
+    "AI agent startup launch",
+    "web3 AI founder building",
+    # Technical topics (gets seen by CTOs/engineers)
     "ethereum consensus FOCIL inclusion list",
     "Rust async tokio production",
     "AI agent infrastructure MCP",
     "distributed validator technology DVT",
-    "ZK proof AI verification",
-    "eBPF networking Rust",
-    "LLM production deployment",
+    "ZK proof AI agent verification",
+    "LLM production deployment latency",
 ]
 
 # Sender profile (from profile.json)
@@ -280,8 +298,11 @@ async def run_linkedin_growth(dry_run: bool = False, limit: int = LINKEDIN_DAILY
     sys.path.insert(0, str(Path(__file__).parent))
     import linkedin_agent
 
-    # Pick random keywords for today
-    keywords = random.sample(LINKEDIN_SEARCH_KEYWORDS, min(3, len(LINKEDIN_SEARCH_KEYWORDS)))
+    # Weight selection: 2 high-value (founder/CEO/VC), 1 engineer
+    high_value = LINKEDIN_SEARCH_KEYWORDS[:14]   # founders, CTOs, VCs
+    engineers  = LINKEDIN_SEARCH_KEYWORDS[14:]   # AI/protocol engineers
+    keywords = random.sample(high_value, min(2, len(high_value))) + \
+               random.sample(engineers, min(1, len(engineers)))
 
     all_urls = []
     for keyword in keywords:
@@ -339,15 +360,22 @@ async def run_linkedin_growth(dry_run: bool = False, limit: int = LINKEDIN_DAILY
 
 
 def _generate_generic_note() -> str:
-    """Pick a random professional connection note from a pool."""
+    """Pick a random professional connection note from a pool.
+    Mix of founder/CEO/VC tone and peer engineer tone."""
     notes = [
-        "Building Ethereum consensus tooling in Rust (FOCIL, DVT-FOCIL, eBPF P2P). Would love to connect with others in the protocol space.",
-        "Working on Rust protocol infra and AI agent systems. Always good to connect with engineers building at this layer.",
-        "Protocol engineer focused on Ethereum consensus and Rust systems. Keen to grow my network in this space.",
-        "Building AI infrastructure and Ethereum protocol tooling. Let's connect — always interested in what others are working on.",
-        "Rust systems engineer working on distributed consensus and LLM infrastructure. Would be great to connect.",
-        "Working on EIP-7805 FOCIL and ZK-proof AI verification. Interested in connecting with protocol engineers.",
-        "Building production MCP servers and Ethereum consensus clients in Rust. Would love to stay in touch.",
+        # For founders / CEOs
+        "Building AI infrastructure in Rust — production MCP servers, Ethereum consensus layer, ZK-proof verification. Would love to connect and follow your work.",
+        "Following your space closely. I build the protocol and agent infrastructure layer — Rust MCP server, EIP-7805 FOCIL, eBPF P2P. Keen to connect.",
+        "Admire what you're building. I work at the infra layer — Rust async systems, Ethereum consensus, multi-agent AI pipelines. Would love to stay connected.",
+        "Building protocol-level AI infrastructure — Rust MCP server, DVT-FOCIL for Ethereum, ZK-verifiable agent engine. Connecting with founders doing interesting work.",
+        # For VCs / investors
+        "I build Rust protocol infrastructure and AI agent systems. Always value connecting with people shaping where the space is going.",
+        "Working on the infrastructure layer for AI agents — Rust MCP, Ethereum consensus tooling, ZK-proof verification. Would love to connect.",
+        # For CTOs / technical leaders
+        "Protocol engineer working on Ethereum consensus (FOCIL, DVT) and Rust AI infrastructure. Would be good to connect with others at this layer.",
+        "Building production Rust systems — MCP server, eBPF P2P observer, multi-agent AI orchestration. Great to connect with technical leaders in this space.",
+        # General peer
+        "Rust systems engineer focused on Ethereum protocol and AI infrastructure. Always interested in connecting with people building at this level.",
     ]
     return random.choice(notes)
 
