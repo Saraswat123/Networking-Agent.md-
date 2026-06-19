@@ -169,19 +169,39 @@ async def search_people(keyword: str, limit: int = 10) -> list[str]:
         await page.wait_for_timeout(3000)
 
         profile_urls = []
-        # Grab all person result links
-        links = await page.locator("a.app-aware-link").all()
-        for link in links:
-            href = await link.get_attribute("href")
-            if href and "/in/" in href and "linkedin.com/in/" in href:
-                # Normalize URL — strip query params
-                clean = href.split("?")[0].rstrip("/")
+        import re
+
+        # Try multiple selectors — LinkedIn changes DOM often
+        selectors = [
+            "a.app-aware-link",
+            "a[href*='/in/']",
+            ".entity-result__title-text a",
+            ".search-result__result-link",
+        ]
+        for selector in selectors:
+            try:
+                links = await page.locator(selector).all()
+                for link in links:
+                    href = await link.get_attribute("href") or ""
+                    m = re.search(r"linkedin\.com/in/([A-Za-z0-9_%-]+)", href)
+                    if m:
+                        clean = f"https://www.linkedin.com/in/{m.group(1)}"
+                        if clean not in profile_urls:
+                            profile_urls.append(clean)
+                if profile_urls:
+                    break
+            except Exception:
+                continue
+
+        # Fallback: extract from page HTML
+        if not profile_urls:
+            content = await page.content()
+            matches = re.findall(r'href="(https://www\.linkedin\.com/in/[A-Za-z0-9_%-]+)', content)
+            for m in matches:
+                clean = m.split("?")[0].rstrip("/")
                 if clean not in profile_urls:
                     profile_urls.append(clean)
-            if len(profile_urls) >= limit * 2:
-                break
 
-        # Shuffle and return limit
         import random
         random.shuffle(profile_urls)
         return profile_urls[:limit]
@@ -208,8 +228,8 @@ async def send_connection_request(profile_url: str, note: str = "", dry_run: boo
 
     page, browser, pw = await _get_browser_page()
     try:
-        await page.goto(profile_url)
-        await page.wait_for_load_state("networkidle")
+        await page.goto(profile_url, wait_until="domcontentloaded", timeout=30000)
+        await page.wait_for_timeout(2500)
         _random_delay()
 
         # Click Connect button
@@ -256,8 +276,8 @@ async def send_message(profile_url: str, message: str, dry_run: bool = False) ->
 
     page, browser, pw = await _get_browser_page()
     try:
-        await page.goto(profile_url)
-        await page.wait_for_load_state("networkidle")
+        await page.goto(profile_url, wait_until="domcontentloaded", timeout=30000)
+        await page.wait_for_timeout(2500)
         _random_delay()
 
         msg_btn = page.locator("button:has-text('Message')")

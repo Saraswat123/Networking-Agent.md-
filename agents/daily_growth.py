@@ -126,7 +126,10 @@ def _today_count(channel: str, action: str) -> int:
         for line in f:
             try:
                 e = json.loads(line)
-                if e.get("date") == today and e.get("channel") == channel and e.get("action") == action:
+                if (e.get("date") == today
+                        and e.get("channel") == channel
+                        and e.get("action") == action
+                        and e.get("result") != "dry_run"):   # don't count dry runs
                     count += 1
             except Exception:
                 pass
