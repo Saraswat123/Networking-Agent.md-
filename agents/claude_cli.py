@@ -18,6 +18,7 @@ import asyncio
 import os
 import subprocess
 import sys
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 
@@ -63,12 +64,36 @@ def _run_claude(prompt: str) -> str:
     return result.stdout.strip()
 
 
+class _FakeStream:
+    """Fake streaming context manager — runs claude -p and yields text word by word."""
+    def __init__(self, messages, **kwargs):
+        self._messages = messages or []
+        self._text = ""
+
+    def __enter__(self):
+        self._text = _run_claude(_extract_prompt(self._messages))
+        return self
+
+    def __exit__(self, *args):
+        pass
+
+    @property
+    def text_stream(self):
+        # Yield in small chunks to simulate streaming output
+        chunk_size = 8
+        for i in range(0, len(self._text), chunk_size):
+            yield self._text[i:i + chunk_size]
+
+
 class _SyncMessages:
     def create(self, model: str = "", max_tokens: int = 4096, messages: list = None, **kwargs) -> _Response:
         if not messages:
             raise ValueError("messages required")
         text = _run_claude(_extract_prompt(messages))
         return _Response(content=[_Content(text=text)])
+
+    def stream(self, model: str = "", max_tokens: int = 4096, messages: list = None, **kwargs) -> _FakeStream:
+        return _FakeStream(messages or [], model=model, max_tokens=max_tokens)
 
 
 class _AsyncMessages:
