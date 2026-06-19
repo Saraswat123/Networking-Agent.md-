@@ -744,5 +744,49 @@ def replies():
         console.print(f"  · {r['to']:<35} sent {sent}")
 
 
+@app.command()
+def grow(
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview without sending"),
+    linkedin_only: bool = typer.Option(False, "--linkedin-only"),
+    x_only: bool = typer.Option(False, "--x-only"),
+    stats: bool = typer.Option(False, "--stats", help="Show stats only"),
+    li_limit: int = typer.Option(20, "--li-limit", help="LinkedIn connections limit"),
+    x_limit: int = typer.Option(15, "--x-limit", help="X replies limit"),
+):
+    """
+    Daily growth task: source LinkedIn connections + post X replies.
+
+    Runs every morning. LinkedIn: 20 connections/day max. X: 15 replies/day.
+
+    Examples:
+      python cli.py grow --dry-run
+      python cli.py grow --linkedin-only
+      python cli.py grow --x-only --x-limit 5
+      python cli.py grow --stats
+    """
+    import asyncio
+    import daily_growth
+    import sys
+
+    sys.argv = ["daily_growth"]
+    if dry_run:
+        sys.argv.append("--dry-run")
+    if linkedin_only:
+        sys.argv.append("--linkedin-only")
+    if x_only:
+        sys.argv.append("--x-only")
+    if stats:
+        sys.argv.append("--stats")
+
+    asyncio.run(daily_growth.main_args(
+        dry_run=dry_run,
+        linkedin_only=linkedin_only,
+        x_only=x_only,
+        stats_only=stats,
+        li_limit=li_limit,
+        x_limit=x_limit,
+    ))
+
+
 if __name__ == "__main__":
     app()
