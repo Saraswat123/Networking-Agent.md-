@@ -44,6 +44,30 @@ pub async fn init_pool(db_path: &str) -> Result<SqlitePool> {
 
     sqlx::query(
         r#"
+        CREATE TABLE IF NOT EXISTS contributions (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            prospect_id         INTEGER REFERENCES prospects(id),
+            repo_owner          TEXT NOT NULL,
+            repo_name           TEXT NOT NULL,
+            issue_number        INTEGER,
+            issue_title         TEXT,
+            contribution_type   TEXT NOT NULL DEFAULT 'pr',
+            pr_url              TEXT,
+            status              TEXT NOT NULL DEFAULT 'drafted',
+            notes               TEXT,
+            submitted_at        DATETIME,
+            acknowledged_at     DATETIME,
+            created_at          DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_contributions_status ON contributions(status);
+        CREATE INDEX IF NOT EXISTS idx_contributions_prospect ON contributions(prospect_id);
+        "#,
+    )
+    .execute(&pool)
+    .await?;
+
+    sqlx::query(
+        r#"
         CREATE TABLE IF NOT EXISTS tool_call_log (
             id                  INTEGER PRIMARY KEY AUTOINCREMENT,
             tool_name           TEXT NOT NULL,

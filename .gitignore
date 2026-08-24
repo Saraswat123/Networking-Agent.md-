@@ -18,5 +18,17 @@ target/
 # OAuth tokens — never commit
 credentials.json
 token.json
+token_*.json
 x_token.json
 linkedin_session.json
+
+# Apply logs / personal data
+agents/apply_log.json
+agents/apply_queue.json
+agents/daily_apply.log
+agents/daily_apply_err.log
+agents/emails/
+agents/jds/
+agents/sources/
+agents/profile.json.bak
+logs/

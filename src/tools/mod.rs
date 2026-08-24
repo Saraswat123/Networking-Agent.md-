@@ -1,5 +1,12 @@
+pub mod apollo;
+pub mod clearbit;
+pub mod crunchbase;
 pub mod email_finder;
 pub mod github;
+pub mod hiring;
 pub mod jobs;
+pub mod platforms;
+pub mod producthunt;
+pub mod scorer;
 pub mod tech_stack;
 pub mod yc;

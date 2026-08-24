@@ -4,37 +4,73 @@ Use the `networking-agent` MCP server tools to build and manage a prospect pipel
 
 ## Tools Available
 
-- `search_github_users` — find engineers/founders by role + location
-- `get_org_members` — all engineers at a target company org
-- `find_open_issues` — entry points (good-first-issue, help-wanted) in target repos
+### Discover
 - `get_yc_companies` — YC founders by batch (W24, S25, W25, etc.)
 - `search_yc_companies` — search YC companies by keyword + location
-- `get_yc_company_team` — find GitHub team members for a YC company
-- `lookup_tech_stack` — detect tech stack from website URL (WebReveal, free, live)
-- `find_company_emails` — find emails for a domain via Hunter.io (needs HUNTER_API_KEY)
-- `search_jobs` — search remote jobs by tag on RemoteOK (free, no key needed)
+- `search_hn_hiring` — search HN "Who is Hiring?" thread
+- `search_wwr` — We Work Remotely RSS (free)
+- `search_workatastartup` — YC companies hiring now (highest signal)
+- `search_jobs` — RemoteOK by tag (free, no key)
+- `search_producthunt` — recently launched products (needs PRODUCTHUNT_API_TOKEN)
+- `search_crunchbase` — funded startups by size/category (needs CRUNCHBASE_API_KEY)
+- `search_github_repos` — find companies by language + topic
+
+### Enrich
+- `enrich_company` — Clearbit: size, funding, tech stack, social (needs CLEARBIT_API_KEY, 50/mo free; fallback: lookup_tech_stack)
+- `lookup_tech_stack` — WebReveal tech detection from URL (free, unlimited, fallback)
+- `search_crunchbase` — funding/size fallback when Clearbit exhausted
+
+### Find People
+- `search_apollo_people` — CTO/founder/eng lead: name+title+LinkedIn FREE, email costs credits (needs APOLLO_API_KEY)
+- `get_yc_company_team` — GitHub org members for YC company
+- `get_org_members` — all public members of GitHub org
+- `search_github_users` — engineers/founders by role + location
+
+### Email Waterfall (in order)
+1. Apollo email reveal (50 credits/mo)
+2. `find_company_emails` — Hunter.io by domain (25 searches/mo, needs HUNTER_API_KEY)
+3. GitHub public profile email (free)
+4. Pattern-guess `firstname@domain` — verify via Hunter `/email-verifier`
+
+### Contribute
+- `list_org_repos` — active repos with open issues for a GitHub org
+- `score_repo_issues` — rank issues 0-100 by contribution opportunity
+- `track_contribution` — log PR/comment submitted; links to prospect
+- `list_contributions` — see what's submitted/acknowledged/merged
+
+### Pipeline & Sync
 - `save_prospect` — add to SQLite pipeline
 - `list_prospects` — show full pipeline
-- `update_prospect_status` — track outreach progress
+- `update_prospect_status` — move through outreach funnel
+- `export_pipeline` — dump prospects + contributions as sheet-ready JSON → then use google-workspace MCP to write to Google Sheets
 
 ## Outreach Status Flow
 
 `new` → `researched` → `github_engaged` → `x_engaged` → `emailed` → `replied` → `meeting_scheduled`
 
-## Workflow
+## Full Pipeline (run in order)
 
-1. Search for targets by role + location
-2. Find their open repos/issues → identify contribution entry point
-3. Save to prospects DB
-4. For each prospect: find the hook (what they're building, what they care about)
-5. Draft outreach anchored to specific work they did
+1. **DISCOVER** — search_workatastartup / search_hn_hiring / get_yc_companies / search_producthunt / search_crunchbase
+2. **ENRICH** — enrich_company (Clearbit) or lookup_tech_stack (free fallback). Skip if >50 emp or no GitHub
+3. **FIND PERSON** — search_apollo_people (name+title free, email costs credits) → get_yc_company_team / get_org_members for GitHub email
+4. **FIND CONTRIBUTION** — list_org_repos → score_repo_issues → pick issue score ≥60, unassigned, no linked PR
+5. **CONTRIBUTE** — open real PR → track_contribution (status: submitted)
+6. **EMAIL TRIGGER** — list_contributions (status: acknowledged) → draft warm 3-sentence email referencing specific PR
 
 ## Outreach Rules
 
-- GitHub first: open a PR or meaningful issue on their repo before emailing
-- X (Twitter): reply to their post with insight before cold DM
-- Email: one sentence hook + ask for 15 min call — send only after warmup
+- GitHub PR FIRST, email only after PR acknowledged/merged
+- Email max 3 sentences: (1) reference specific PR, (2) why you care about what they build, (3) one ask
+- No "Dear Name". No teaser hooks. No AI slop
 - Never mass-blast — one personalized touch at a time
+
+## Sheets Sync
+
+When user says "sync to sheets" or "update tracker":
+1. Call `export_pipeline` → get JSON with prospects[] and contributions[] arrays
+2. Use `google-workspace` MCP: `create_spreadsheet` (first time) or `modify_sheet_values` (update)
+3. Write prospects to Sheet1 (tab "Prospects"), contributions to Sheet2 (tab "Contributions")
+4. First row = headers from export, then rows array
 
 ## Environment Variables
 
