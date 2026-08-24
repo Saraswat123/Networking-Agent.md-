@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
 use crate::compliance::ComplianceLayer;
-use crate::tools::{apollo, clearbit, crunchbase, discovery, email_finder, github, hiring, jobs, platforms, producthunt, scorer, tech_stack, yc};
+use crate::tools::{apollo, clearbit, crunchbase, discovery, email_finder, github, hiring, jobs, platforms, producthunt, proposals, scorer, tech_stack, yc};
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct SearchUsersParams {
@@ -872,6 +872,64 @@ DRAFT NOTES:
         self.compliance.audit.log(&self.db, "search_wellfound", &input, &result, t, &[]).await;
         result
     }
+
+    #[tool(description = "Deep-analyze a company's GitHub org: repos, open issues (categorized by type), recent commits (classified by signal), discussions, tech stack, and pain points. Produces next-move hypotheses. Run this BEFORE draft_company_proposal. Takes 10-30s.")]
+    async fn analyze_company_depth(
+        &self,
+        Parameters(params): Parameters<AnalyzeCompanyParams>,
+    ) -> String {
+        if let Err(e) = self.compliance.rate_limiter.check("analyze_company_depth").await { return e; }
+        let t = self.compliance.audit.start();
+        let max_repos = params.max_repos.unwrap_or(8).min(15);
+        let max_issues = params.max_issues_per_repo.unwrap_or(15).min(30);
+        let result = match proposals::analyze_company_github(
+            &self.http_client,
+            &self.github_token,
+            &params.org,
+            max_repos,
+            max_issues,
+        ).await {
+            Ok(analysis) => serde_json::to_string_pretty(&analysis).unwrap_or_else(|e| e.to_string()),
+            Err(e) => format!("Error: {}", e),
+        };
+        self.compliance.audit.log(&self.db, "analyze_company_depth", &params.org, &result, t, &[]).await;
+        result
+    }
+
+    #[tool(description = "Generate targeted technical proposals for a company based on their GitHub analysis. Each proposal includes: problem statement (what they're about to hit), evidence from their repo, proposed solution, why now, open question for discussion, and a ready-to-send discussion opener. NOT a job application — an engineering discussion starter. Run analyze_company_depth first.")]
+    async fn draft_company_proposal(
+        &self,
+        Parameters(params): Parameters<DraftProposalParams>,
+    ) -> String {
+        if let Err(e) = self.compliance.rate_limiter.check("draft_company_proposal").await { return e; }
+        let t = self.compliance.audit.start();
+
+        // Re-run analysis to generate proposals (analysis is stateless, no cache needed)
+        let analysis = match proposals::analyze_company_github(
+            &self.http_client,
+            &self.github_token,
+            &params.org,
+            8,
+            15,
+        ).await {
+            Ok(a) => a,
+            Err(e) => return format!("Error analyzing {}: {}", params.org, e),
+        };
+
+        let company_name = &params.company_name;
+        let focus = params.focus_area.as_deref();
+        let proposal_list = proposals::draft_technical_proposal(&analysis, company_name, focus);
+
+        let result = if proposal_list.is_empty() {
+            format!("No proposals generated for {} with focus={:?}. Try running analyze_company_depth first to see what pain points exist, then re-run with a different focus_area.", params.org, focus)
+        } else {
+            serde_json::to_string_pretty(&proposal_list).unwrap_or_else(|e| e.to_string())
+        };
+
+        let input = format!("org={} company={} focus={:?}", params.org, company_name, focus);
+        self.compliance.audit.log(&self.db, "draft_company_proposal", &input, &result, t, &[]).await;
+        result
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -1058,6 +1116,28 @@ pub struct ApolloParams {
 pub struct ClearbitParams {
     /// Company domain without protocol e.g. "stripe.com", "notion.so", "openai.com"
     pub domain: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct AnalyzeCompanyParams {
+    /// GitHub org login e.g. "vercel", "supabase", "pola-rs"
+    pub org: String,
+    /// Company display name e.g. "Vercel", "Supabase" (used in proposals)
+    pub company_name: Option<String>,
+    /// Max repos to inspect (default 8, max 15)
+    pub max_repos: Option<usize>,
+    /// Max issues per repo (default 15, max 30)
+    pub max_issues_per_repo: Option<usize>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct DraftProposalParams {
+    /// GitHub org login — must have been analyzed first with analyze_company_depth
+    pub org: String,
+    /// Company display name for the proposal
+    pub company_name: String,
+    /// Focus on a specific area: "scaling", "ai", "database", "integration" — empty = all
+    pub focus_area: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
