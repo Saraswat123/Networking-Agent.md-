@@ -14,6 +14,10 @@ Use the `networking-agent` MCP server tools to build and manage a prospect pipel
 - `search_producthunt` — recently launched products (needs PRODUCTHUNT_API_TOKEN)
 - `search_crunchbase` — funded startups by size/category (needs CRUNCHBASE_API_KEY)
 - `search_github_repos` — find companies by language + topic
+- `search_funding_news` — TechCrunch + EU-Startups + Sifted RSS: just-raised companies (free, global)
+- `search_remotive` — Remotive.io global remote jobs: EU/Asia/LATAM coverage YC misses (free)
+- `search_github_trending` — GitHub trending repos by language: active companies building NOW (free)
+- `search_wellfound` — Wellfound/AngelList startup jobs: seed/Series A companies with equity (free)
 
 ### Enrich
 - `enrich_company` — Clearbit: size, funding, tech stack, social (needs CLEARBIT_API_KEY, 50/mo free; fallback: lookup_tech_stack)
@@ -50,7 +54,7 @@ Use the `networking-agent` MCP server tools to build and manage a prospect pipel
 
 ## Full Pipeline (run in order)
 
-1. **DISCOVER** — search_workatastartup / search_hn_hiring / get_yc_companies / search_producthunt / search_crunchbase
+1. **DISCOVER** — search_funding_news (just-raised = hiring NOW) / search_workatastartup / search_hn_hiring / get_yc_companies / search_remotive (global) / search_github_trending (Rust/Go) / search_wellfound / search_producthunt / search_crunchbase
 2. **ENRICH** — enrich_company (Clearbit) or lookup_tech_stack (free fallback). Skip if >50 emp or no GitHub
 3. **FIND PERSON** — search_apollo_people (name+title free, email costs credits) → get_yc_company_team / get_org_members for GitHub email
 4. **FIND CONTRIBUTION** — list_org_repos → score_repo_issues → pick issue score ≥60, unassigned, no linked PR

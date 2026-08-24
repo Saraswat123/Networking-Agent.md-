@@ -2,7 +2,7 @@
 
 A Rust MCP server for autonomous job search — contribution-first pipeline that discovers companies, scores GitHub issues, tracks PRs, and triggers warm outreach only after a real contribution is acknowledged.
 
-**27 tools · 10 external APIs · SQLite pipeline · Google Sheets export · Compliance built-in**
+**31 tools · 10 external APIs · SQLite pipeline · Google Sheets export · Compliance built-in**
 
 ---
 
@@ -51,7 +51,7 @@ A Rust MCP server for autonomous job search — contribution-first pipeline that
 
 | Stage | Tools | Signal |
 |---|---|---|
-| **Discover** | workatastartup, hn_hiring, yc, producthunt, crunchbase, wwr, remoteok | Companies actively hiring |
+| **Discover** | workatastartup, hn_hiring, yc, producthunt, crunchbase, wwr, remoteok, funding_news, remotive, github_trending, wellfound | Companies actively hiring + recently funded |
 | **Enrich** | enrich_company (WebReveal+CB+Hunter), lookup_tech_stack | Size, funding, tech stack |
 | **Find Person** | search_apollo_people, get_yc_company_team, find_person_email | Name + verified email |
 | **Contribute** | list_org_repos, score_repo_issues, track_contribution | Real PR on their repo |
@@ -63,7 +63,7 @@ A Rust MCP server for autonomous job search — contribution-first pipeline that
 
 ## Tool Registry — 27 tools
 
-### Discover (9)
+### Discover (13)
 
 | Tool | Source | Auth |
 |---|---|---|
@@ -76,6 +76,10 @@ A Rust MCP server for autonomous job search — contribution-first pipeline that
 | `search_producthunt` | Recently launched products | `PRODUCTHUNT_API_TOKEN` |
 | `search_crunchbase` | Funded startups by size/category | `CRUNCHBASE_API_KEY` |
 | `search_github_repos` | Repos by language + topic | `GITHUB_TOKEN` |
+| `search_funding_news` | TechCrunch + EU-Startups + Sifted RSS — just-raised companies | free |
+| `search_remotive` | Remotive.io — global remote jobs (EU/Asia/LATAM) | free |
+| `search_github_trending` | GitHub trending repos by language — companies building NOW | free / `GITHUB_TOKEN` |
+| `search_wellfound` | Wellfound (AngelList) startup jobs — seed/Series A companies | free |
 
 ### Enrich (2)
 
@@ -128,7 +132,7 @@ A Rust MCP server for autonomous job search — contribution-first pipeline that
 networking-agent/
 ├── src/
 │   ├── main.rs                  # Entry: env vars, DB init, MCP stdio loop
-│   ├── server.rs                # NetworkingServer + 27 tool definitions + param structs
+│   ├── server.rs                # NetworkingServer + 31 tool definitions + param structs
 │   ├── db.rs                    # SqlitePool init, schema (3 tables)
 │   ├── compliance/
 │   │   ├── mod.rs               # ComplianceLayer struct
@@ -140,6 +144,7 @@ networking-agent/
 │       ├── apollo.rs            # Apollo.io — people + org search
 │       ├── clearbit.rs          # Free enrichment: WebReveal + Crunchbase + Hunter
 │       ├── crunchbase.rs        # Crunchbase v4 — autocomplete + search
+│       ├── discovery.rs         # Funding news RSS · Remotive · GitHub trending · Wellfound
 │       ├── email_finder.rs      # Hunter.io domain search + 4-step person waterfall
 │       ├── github.rs            # GitHub REST v3 — users, orgs, issues
 │       ├── hiring.rs            # HN Algolia — "Who is Hiring?" thread

@@ -1,5 +1,6 @@
 pub mod apollo;
 pub mod clearbit;
+pub mod discovery;
 pub mod crunchbase;
 pub mod email_finder;
 pub mod github;

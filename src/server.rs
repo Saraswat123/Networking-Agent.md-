@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
 use crate::compliance::ComplianceLayer;
-use crate::tools::{apollo, clearbit, crunchbase, email_finder, github, hiring, jobs, platforms, producthunt, scorer, tech_stack, yc};
+use crate::tools::{apollo, clearbit, crunchbase, discovery, email_finder, github, hiring, jobs, platforms, producthunt, scorer, tech_stack, yc};
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct SearchUsersParams {
@@ -797,6 +797,81 @@ DRAFT NOTES:
         self.compliance.audit.log(&self.db, "list_contributions", params.status.as_deref().unwrap_or("all"), &result, t, &[]).await;
         result
     }
+
+    #[tool(description = "Fetch funding news from TechCrunch, EU-Startups, and Sifted RSS. Returns recently-funded companies — these are actively hiring RIGHT NOW. Filter by round: seed, series-a, series-b. Global coverage including EU and Asia startups.")]
+    async fn search_funding_news(
+        &self,
+        Parameters(params): Parameters<FundingNewsParams>,
+    ) -> String {
+        if let Err(e) = self.compliance.rate_limiter.check("search_funding_news").await { return e; }
+        let t = self.compliance.audit.start();
+        let filter = params.filter_round.as_deref().unwrap_or("");
+        let limit = params.limit.unwrap_or(20).min(50);
+        let result = match discovery::search_funding_news(&self.http_client, filter, limit).await {
+            Ok(news) => serde_json::to_string_pretty(&news).unwrap_or_else(|e| e.to_string()),
+            Err(e) => format!("Error: {}", e),
+        };
+        self.compliance.audit.log(&self.db, "search_funding_news", filter, &result, t, &[]).await;
+        result
+    }
+
+    #[tool(description = "Search Remotive.io for global remote jobs. Covers EU, Asia, LATAM companies that YC/HN miss entirely. Filter by keyword (rust, data engineer, backend) and category (software-dev, devops-sysadmin).")]
+    async fn search_remotive(
+        &self,
+        Parameters(params): Parameters<RemotiveParams>,
+    ) -> String {
+        if let Err(e) = self.compliance.rate_limiter.check("search_remotive").await { return e; }
+        let t = self.compliance.audit.start();
+        let query = params.query.as_deref().unwrap_or("");
+        let category = params.category.as_deref().unwrap_or("");
+        let limit = params.limit.unwrap_or(20).min(50);
+        let result = match discovery::search_remotive(&self.http_client, query, category, limit).await {
+            Ok(jobs) => serde_json::to_string_pretty(&jobs).unwrap_or_else(|e| e.to_string()),
+            Err(e) => format!("Error: {}", e),
+        };
+        let input = format!("query={} category={}", query, category);
+        self.compliance.audit.log(&self.db, "search_remotive", &input, &result, t, &[]).await;
+        result
+    }
+
+    #[tool(description = "Find trending GitHub repos by language and time window. Trending Rust/Go repos = active companies building NOW. Feed org names directly into list_org_repos + score_repo_issues to find contribution opportunities.")]
+    async fn search_github_trending(
+        &self,
+        Parameters(params): Parameters<GitHubTrendingParams>,
+    ) -> String {
+        if let Err(e) = self.compliance.rate_limiter.check("search_github_trending").await { return e; }
+        let t = self.compliance.audit.start();
+        let language = params.language.as_deref().unwrap_or("");
+        let since = params.since.as_deref().unwrap_or("weekly");
+        let limit = params.limit.unwrap_or(20).min(30);
+        let result = match discovery::search_github_trending(&self.http_client, &self.github_token, language, since, limit).await {
+            Ok(repos) => serde_json::to_string_pretty(&repos).unwrap_or_else(|e| e.to_string()),
+            Err(e) => format!("Error: {}", e),
+        };
+        let input = format!("language={} since={}", language, since);
+        self.compliance.audit.log(&self.db, "search_github_trending", &input, &result, t, &[]).await;
+        result
+    }
+
+    #[tool(description = "Search Wellfound (AngelList) for startup jobs. Largest startup job source after LinkedIn. Filters: role (engineer/backend/data-engineer), keywords (rust/distributed-systems/protocol), remote_only. Returns company stage, size, equity offers.")]
+    async fn search_wellfound(
+        &self,
+        Parameters(params): Parameters<WellfoundParams>,
+    ) -> String {
+        if let Err(e) = self.compliance.rate_limiter.check("search_wellfound").await { return e; }
+        let t = self.compliance.audit.start();
+        let role = params.role.as_deref().unwrap_or("engineer");
+        let keywords = params.keywords.as_deref().unwrap_or("");
+        let remote_only = params.remote_only.unwrap_or(true);
+        let limit = params.limit.unwrap_or(20).min(50);
+        let result = match discovery::search_wellfound(&self.http_client, role, keywords, remote_only, limit).await {
+            Ok(jobs) => serde_json::to_string_pretty(&jobs).unwrap_or_else(|e| e.to_string()),
+            Err(e) => format!("Error: {}", e),
+        };
+        let input = format!("role={} keywords={} remote={}", role, keywords, remote_only);
+        self.compliance.audit.log(&self.db, "search_wellfound", &input, &result, t, &[]).await;
+        result
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -983,6 +1058,46 @@ pub struct ApolloParams {
 pub struct ClearbitParams {
     /// Company domain without protocol e.g. "stripe.com", "notion.so", "openai.com"
     pub domain: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct FundingNewsParams {
+    /// Round filter: "seed", "series-a", "series-b", "series-c" — leave empty for all rounds
+    pub filter_round: Option<String>,
+    /// Max results (default 20)
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct RemotiveParams {
+    /// Keyword filter e.g. "rust", "data engineer", "backend", "ML" — leave empty for all
+    pub query: Option<String>,
+    /// Category: "software-dev", "devops-sysadmin", "all" (empty = all remote jobs)
+    pub category: Option<String>,
+    /// Max results (default 20)
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct GitHubTrendingParams {
+    /// Language filter e.g. "rust", "go", "python", "typescript" — leave empty for all
+    pub language: Option<String>,
+    /// Time window: "daily", "weekly", "monthly" (default: "weekly")
+    pub since: Option<String>,
+    /// Max results (default 20, max 30)
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct WellfoundParams {
+    /// Role category e.g. "engineer", "backend", "data-engineer", "devops"
+    pub role: Option<String>,
+    /// Keywords e.g. "rust", "distributed systems", "protocol"
+    pub keywords: Option<String>,
+    /// Filter to remote-only positions (default true)
+    pub remote_only: Option<bool>,
+    /// Max results (default 20)
+    pub limit: Option<usize>,
 }
 
 #[tool_handler]
