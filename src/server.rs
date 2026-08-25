@@ -71,6 +71,7 @@ pub struct NetworkingServer {
     producthunt_api_token: String,
     apollo_api_key: String,
     clearbit_api_key: String,
+    sender_email: String,
     compliance: ComplianceLayer,
 }
 
@@ -83,6 +84,7 @@ impl NetworkingServer {
         producthunt_api_token: String,
         apollo_api_key: String,
         clearbit_api_key: String,
+        sender_email: String,
         compliance: ComplianceLayer,
     ) -> Self {
         Self {
@@ -95,6 +97,7 @@ impl NetworkingServer {
             producthunt_api_token,
             apollo_api_key,
             clearbit_api_key,
+            sender_email,
             compliance,
         }
     }
@@ -628,8 +631,10 @@ impl NetworkingServer {
                     notes.clone()
                 };
 
+                let sender = &self.sender_email;
                 let email_draft = format!(
 r#"To: {email_addr}
+From: {sender}
 Subject: Re: {repo} contribution
 
 {first_name},
@@ -640,16 +645,19 @@ I've been following {company}'s work on {repo_name} and it's the kind of {role_a
 
 Open to a quick call if you're looking for engineers who can contribute from day one?
 
-[Your name]
+Saraswat
+{sender}
 
 ---
 DRAFT NOTES:
 - Replace [what they build] with 1 specific thing from their docs/README
-- Verify email: {email_addr}
+- Verify recipient email: {email_addr}
+- Send FROM: {sender} (personal Gmail, not work address)
 - Send only after PR is acknowledged/merged (status: acknowledged)
 - Subject line: keep short, reference repo name
 "#,
                     email_addr = email.as_deref().unwrap_or("[EMAIL NEEDED — run find_person_email first]"),
+                    sender = sender,
                     first_name = first_name,
                     contribution_ref = contribution_ref,
                     context_note = context_note,

@@ -16,6 +16,8 @@ async fn main() -> Result<()> {
     let producthunt_api_token = env::var("PRODUCTHUNT_API_TOKEN").unwrap_or_default();
     let apollo_api_key = env::var("APOLLO_API_KEY").unwrap_or_default();
     let clearbit_api_key = env::var("CLEARBIT_API_KEY").unwrap_or_default();
+    let sender_email = env::var("SENDER_EMAIL")
+        .unwrap_or_else(|_| "saraswatdas94@gmail.com".to_string());
     let db_path = env::var("NETWORKING_DB").unwrap_or_else(|_| {
         let home = env::var("HOME").unwrap_or_else(|_| ".".to_string());
         format!("{}/networking-agent.db", home)
@@ -32,6 +34,7 @@ async fn main() -> Result<()> {
         producthunt_api_token,
         apollo_api_key,
         clearbit_api_key,
+        sender_email,
         compliance,
     );
 
