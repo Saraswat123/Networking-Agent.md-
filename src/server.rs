@@ -54,6 +54,8 @@ pub struct SaveProspectParams {
     pub github: Option<String>,
     pub email: Option<String>,
     pub company: Option<String>,
+    /// Company website URL — used to extract domain for dedup
+    pub website: Option<String>,
     pub role: Option<String>,
     pub location: Option<String>,
     pub notes: Option<String>,
@@ -174,19 +176,53 @@ impl NetworkingServer {
         result
     }
 
-    #[tool(description = "Save a prospect to the local database for tracking outreach.")]
+    #[tool(description = "Save a prospect to the local database. Deduplicates by domain (website) and GitHub handle — returns existing record instead of inserting if company already in pipeline. Pass website URL to enable domain dedup.")]
     async fn save_prospect(&self, Parameters(params): Parameters<SaveProspectParams>) -> String {
         if let Err(e) = self.compliance.rate_limiter.check("save_prospect").await { return e; }
         let t = self.compliance.audit.start();
         let input = self.compliance.pii.redact(&format!("name={} company={:?}", params.name, params.company));
+
+        // Extract domain from website for dedup
+        let domain: Option<String> = params.website.as_deref().map(|w| {
+            w.trim_start_matches("https://")
+             .trim_start_matches("http://")
+             .trim_start_matches("www.")
+             .split('/')
+             .next()
+             .unwrap_or(w)
+             .to_lowercase()
+        });
+
+        // Domain dedup check
+        if let Some(ref d) = domain {
+            let exists: Option<(i64, String, String)> = sqlx::query_as(
+                "SELECT id, name, outreach_status FROM prospects WHERE LOWER(domain) = ? LIMIT 1"
+            )
+            .bind(d)
+            .fetch_optional(&self.db)
+            .await
+            .unwrap_or(None);
+
+            if let Some((id, name, status)) = exists {
+                let out = format!(
+                    "DUPLICATE — '{}' (id:{}) already in pipeline (status: {}). domain={}. Skipped.",
+                    name, id, status, d
+                );
+                self.compliance.audit.log(&self.db, "save_prospect", &input, &out, t, &[]).await;
+                return out;
+            }
+        }
+
         let result = sqlx::query(
             r#"
-            INSERT INTO prospects (name, github, email, company, role, location, notes, source)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO prospects (name, github, email, company, website, domain, role, location, notes, source)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(github) DO UPDATE SET
                 name = excluded.name,
                 email = COALESCE(excluded.email, email),
                 company = COALESCE(excluded.company, company),
+                domain = COALESCE(excluded.domain, domain),
+                website = COALESCE(excluded.website, website),
                 notes = COALESCE(excluded.notes, notes)
             "#,
         )
@@ -194,6 +230,8 @@ impl NetworkingServer {
         .bind(&params.github)
         .bind(&params.email)
         .bind(&params.company)
+        .bind(&params.website)
+        .bind(&domain)
         .bind(&params.role)
         .bind(&params.location)
         .bind(&params.notes)
@@ -202,7 +240,7 @@ impl NetworkingServer {
         .await;
 
         let out = match result {
-            Ok(r) => format!("Saved prospect '{}' (row id: {})", params.name, r.last_insert_rowid()),
+            Ok(r) => format!("Saved prospect '{}' (row id: {}, domain: {:?})", params.name, r.last_insert_rowid(), domain),
             Err(e) => format!("Error saving prospect: {}", e),
         };
         self.compliance.audit.log(&self.db, "save_prospect", &input, &out, t, &[]).await;
@@ -255,11 +293,21 @@ impl NetworkingServer {
         if let Err(e) = self.compliance.rate_limiter.check("update_prospect_status").await { return e; }
         let t = self.compliance.audit.start();
         let input = format!("id={} status={}", params.id, params.status);
-        let result = sqlx::query("UPDATE prospects SET outreach_status = ? WHERE id = ?")
-            .bind(&params.status)
-            .bind(params.id)
-            .execute(&self.db)
-            .await;
+        let now = chrono::Utc::now().to_rfc3339();
+        // When marking emailed, stamp email_sent_at; when replied, clear stale state
+        let result = if params.status == "emailed" {
+            sqlx::query("UPDATE prospects SET outreach_status = ?, email_sent_at = COALESCE(email_sent_at, ?) WHERE id = ?")
+                .bind(&params.status).bind(&now).bind(params.id)
+                .execute(&self.db).await
+        } else if params.status == "replied" {
+            sqlx::query("UPDATE prospects SET outreach_status = ?, archived = 0 WHERE id = ?")
+                .bind(&params.status).bind(params.id)
+                .execute(&self.db).await
+        } else {
+            sqlx::query("UPDATE prospects SET outreach_status = ? WHERE id = ?")
+                .bind(&params.status).bind(params.id)
+                .execute(&self.db).await
+        };
         let out = match result {
             Ok(_) => format!("Updated prospect {} status to '{}'", params.id, params.status),
             Err(e) => format!("Error: {}", e),
@@ -607,6 +655,23 @@ impl NetworkingServer {
         .fetch_optional(&self.db)
         .await;
 
+        // Load cached analysis for auto-fill if org provided
+        let cached_analysis: Option<proposals::CompanyAnalysis> = if let Some(ref org) = params.github_org {
+            sqlx::query_as::<_, (String,)>(
+                "SELECT analysis FROM analysis_cache WHERE org = ? AND cached_at >= datetime('now', '-7 days')"
+            )
+            .bind(org)
+            .fetch_optional(&self.db)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|(json,)| serde_json::from_str(&json).ok())
+        } else {
+            None
+        };
+
+        let tone = params.tone.as_deref().unwrap_or("peer");
+
         let result = match (contrib, prospect) {
             (Ok(Some((owner, repo, issue_num, issue_title, ctype, pr_url, notes))), Ok(Some((name, company, role, email)))) => {
                 let first_name = name.split_whitespace().next().unwrap_or(&name);
@@ -631,8 +696,48 @@ impl NetworkingServer {
                     notes.clone()
                 };
 
+                // Auto-fill what-they-build from cached analysis
+                let what_they_build = if let Some(ref a) = cached_analysis {
+                    let top_pain = a.pain_points.iter()
+                        .find(|p| matches!(p.severity, proposals::PainSeverity::High))
+                        .or_else(|| a.pain_points.iter().find(|p| matches!(p.severity, proposals::PainSeverity::Medium)));
+                    if let Some(pain) = top_pain {
+                        format!("{} — specifically the {} challenge", company_str, pain.area.to_lowercase())
+                    } else {
+                        let stack = a.tech_stack.iter().take(2).cloned().collect::<Vec<_>>().join("/");
+                        format!("{} infrastructure on {}", company_str, stack)
+                    }
+                } else {
+                    format!("{}'s core infrastructure", company_str)
+                };
+
                 let sender = &self.sender_email;
-                let email_draft = format!(
+
+                let email_draft = match tone {
+                    "candidate" => format!(
+r#"To: {email_addr}
+From: {sender}
+Subject: Re: {repo} — engineer who shipped it
+
+{first_name},
+
+{contribution_ref} — {context_note}.
+
+I'm actively looking for {role_area} roles. {company}'s work on {repo_name} maps directly to what I've been building. Happy to send CV or jump on a call if there's a fit.
+
+Saraswat
+{sender}
+https://saraswat.vercel.app/"#,
+                        email_addr = email.as_deref().unwrap_or("[EMAIL NEEDED]"),
+                        sender = sender,
+                        first_name = first_name,
+                        contribution_ref = contribution_ref,
+                        context_note = context_note,
+                        company = company_str,
+                        repo_name = repo,
+                        role_area = if role_str.to_lowercase().contains("data") { "data infra" } else { "systems" },
+                    ),
+                    _ => format!(
 r#"To: {email_addr}
 From: {sender}
 Subject: Re: {repo} contribution
@@ -641,38 +746,32 @@ Subject: Re: {repo} contribution
 
 {contribution_ref} — {context_note}.
 
-I've been following {company}'s work on {repo_name} and it's the kind of {role_area} infrastructure I want to be building — the problem you're solving around [what they build] is real and your approach is interesting.
+Been following {what_they_build}. The direction you're taking here is the interesting part.
 
-Open to a quick call if you're looking for engineers who can contribute from day one?
+Open to comparing notes if you're exploring this area further?
 
 Saraswat
 {sender}
-
----
-DRAFT NOTES:
-- Replace [what they build] with 1 specific thing from their docs/README
-- Verify recipient email: {email_addr}
-- Send FROM: {sender} (personal Gmail, not work address)
-- Send only after PR is acknowledged/merged (status: acknowledged)
-- Subject line: keep short, reference repo name
-"#,
-                    email_addr = email.as_deref().unwrap_or("[EMAIL NEEDED — run find_person_email first]"),
-                    sender = sender,
-                    first_name = first_name,
-                    contribution_ref = contribution_ref,
-                    context_note = context_note,
-                    company = company_str,
-                    repo_name = repo,
-                    role_area = if role_str.to_lowercase().contains("data") { "data" } else { "systems" },
-                );
+https://saraswat.vercel.app/"#,
+                        email_addr = email.as_deref().unwrap_or("[EMAIL NEEDED]"),
+                        sender = sender,
+                        first_name = first_name,
+                        contribution_ref = contribution_ref,
+                        context_note = context_note,
+                        what_they_build = what_they_build,
+                    ),
+                };
 
                 serde_json::to_string_pretty(&serde_json::json!({
                     "draft": email_draft,
                     "to": email,
                     "subject": format!("Re: {}/{}", owner, repo),
+                    "tone": tone,
+                    "direction": if tone == "candidate" { "job" } else { "proposal" },
                     "prospect": { "name": name, "company": company_str, "role": role_str },
                     "contribution": { "repo": format!("{}/{}", owner, repo), "pr_url": pr_url, "type": ctype },
-                    "status": "ready_to_send — verify [what they build] placeholder before sending"
+                    "auto_filled": cached_analysis.is_some(),
+                    "status": "draft — confirm with 'send it' before sending"
                 })).unwrap_or_else(|e| e.to_string())
             }
             (Ok(None), _) => format!("Error: contribution_id {} not found", params.contribution_id),
@@ -682,6 +781,286 @@ DRAFT NOTES:
 
         self.compliance.audit.log(&self.db, "draft_warm_email", &format!("contrib={} prospect={}", params.contribution_id, params.prospect_id), &result, t, &[]).await;
         result
+    }
+
+    // ── FIX 1: Dedup gate ──────────────────────────────────────────────────────
+
+    #[tool(description = "Check if a company already exists in the pipeline by domain. Run this BEFORE enriching any company to avoid wasting API credits on duplicates. Returns existing prospect data if found, or 'not_found'. Extract domain from website URL e.g. 'stripe.com' from 'https://stripe.com/pricing'.")]
+    async fn check_company_exists(
+        &self,
+        Parameters(params): Parameters<CheckCompanyParams>,
+    ) -> String {
+        if let Err(e) = self.compliance.rate_limiter.check("check_company_exists").await { return e; }
+        let domain = params.domain
+            .trim_start_matches("https://")
+            .trim_start_matches("http://")
+            .trim_start_matches("www.")
+            .split('/')
+            .next()
+            .unwrap_or(&params.domain)
+            .to_lowercase();
+
+        let row: Result<Option<(i64, String, Option<String>, Option<String>, String)>, _> =
+            sqlx::query_as("SELECT id, name, company, email, outreach_status FROM prospects WHERE LOWER(domain) = ? LIMIT 1")
+                .bind(&domain)
+                .fetch_optional(&self.db)
+                .await;
+
+        match row {
+            Ok(Some((id, name, company, email, status))) => serde_json::to_string_pretty(&serde_json::json!({
+                "found": true,
+                "id": id,
+                "name": name,
+                "company": company,
+                "email": email,
+                "status": status,
+                "domain": domain,
+                "action": "skip — already in pipeline"
+            })).unwrap_or_default(),
+            Ok(None) => serde_json::to_string_pretty(&serde_json::json!({
+                "found": false,
+                "domain": domain,
+                "action": "proceed"
+            })).unwrap_or_default(),
+            Err(e) => format!("Error: {}", e),
+        }
+    }
+
+    // ── FIX 2: Zombie company / dead maintainer gate ────────────────────────────
+
+    #[tool(description = "Check repo health before investing time writing a contribution. Detects: zombie repos (last commit >90 days), dead maintainers (40+ open PRs, 0 merged in 30d), no open issues. Returns verdict: GOOD | MARGINAL | SKIP. Run this BEFORE score_repo_issues on any repo you plan to contribute to.")]
+    async fn check_repo_health(
+        &self,
+        Parameters(params): Parameters<RepoHealthParams>,
+    ) -> String {
+        if let Err(e) = self.compliance.rate_limiter.check("check_repo_health").await { return e; }
+        let t = self.compliance.audit.start();
+        let input = format!("{}/{}", params.owner, params.repo);
+        let result = match scorer::check_repo_health(&self.http_client, &self.github_token, &params.owner, &params.repo).await {
+            Ok(health) => serde_json::to_string_pretty(&health).unwrap_or_else(|e| e.to_string()),
+            Err(e) => format!("Error: {}", e),
+        };
+        self.compliance.audit.log(&self.db, "check_repo_health", &input, &result, t, &[]).await;
+        result
+    }
+
+    // ── FIX 3: Already-contacted guard ─────────────────────────────────────────
+
+    #[tool(description = "Check if a person is already in the pipeline by email or GitHub handle. Run before save_prospect to prevent double-emailing the same person found via different source paths. Returns existing record if duplicate found.")]
+    async fn check_already_contacted(
+        &self,
+        Parameters(params): Parameters<ContactedCheckParams>,
+    ) -> String {
+        if let Err(e) = self.compliance.rate_limiter.check("check_already_contacted").await { return e; }
+
+        let by_email: Option<(i64, String, String)> = if let Some(ref email) = params.email {
+            sqlx::query_as("SELECT id, name, outreach_status FROM prospects WHERE LOWER(email) = LOWER(?) LIMIT 1")
+                .bind(email)
+                .fetch_optional(&self.db)
+                .await
+                .unwrap_or(None)
+        } else { None };
+
+        if let Some((id, name, status)) = by_email {
+            return serde_json::to_string_pretty(&serde_json::json!({
+                "duplicate": true, "match_by": "email",
+                "id": id, "name": name, "status": status,
+                "action": "skip — already contacted via email"
+            })).unwrap_or_default();
+        }
+
+        let by_github: Option<(i64, String, String)> = if let Some(ref gh) = params.github {
+            sqlx::query_as("SELECT id, name, outreach_status FROM prospects WHERE LOWER(github) = LOWER(?) LIMIT 1")
+                .bind(gh)
+                .fetch_optional(&self.db)
+                .await
+                .unwrap_or(None)
+        } else { None };
+
+        if let Some((id, name, status)) = by_github {
+            return serde_json::to_string_pretty(&serde_json::json!({
+                "duplicate": true, "match_by": "github",
+                "id": id, "name": name, "status": status,
+                "action": "skip — already in pipeline via GitHub"
+            })).unwrap_or_default();
+        }
+
+        serde_json::to_string_pretty(&serde_json::json!({ "duplicate": false, "action": "proceed" }))
+            .unwrap_or_default()
+    }
+
+    // ── FIX 5: Day-7 follow-up sequence ────────────────────────────────────────
+
+    #[tool(description = "List prospects due for a follow-up email. Returns anyone whose first email was sent >= N days ago (default 7) with no reply and no follow-up yet sent. Use this daily to trigger second touchpoints. Second email should use a completely different angle — NOT 'just checking in'.")]
+    async fn list_followup_due(
+        &self,
+        Parameters(params): Parameters<FollowupDueParams>,
+    ) -> String {
+        if let Err(e) = self.compliance.rate_limiter.check("list_followup_due").await { return e; }
+        let t = self.compliance.audit.start();
+        let days = params.days.unwrap_or(7);
+
+        let rows: Result<Vec<serde_json::Value>, _> = sqlx::query_as::<_, (i64, String, Option<String>, Option<String>, String, Option<String>)>(
+            r#"
+            SELECT id, name, email, company, outreach_status, email_sent_at
+            FROM prospects
+            WHERE outreach_status = 'emailed'
+              AND archived = 0
+              AND email_sent_at IS NOT NULL
+              AND follow_up_sent_at IS NULL
+              AND CAST((julianday('now') - julianday(email_sent_at)) AS INTEGER) >= ?
+            ORDER BY email_sent_at ASC
+            "#
+        )
+        .bind(days)
+        .fetch_all(&self.db)
+        .await
+        .map(|rows| rows.into_iter().map(|(id, name, email, company, status, sent_at)| {
+            serde_json::json!({
+                "id": id, "name": name, "email": email,
+                "company": company, "status": status,
+                "email_sent_at": sent_at,
+                "action": "draft follow-up email (different angle, not checking in)"
+            })
+        }).collect());
+
+        match rows {
+            Ok(data) => serde_json::to_string_pretty(&data).unwrap_or_else(|e| e.to_string()),
+            Err(e) => format!("Error: {}", e),
+        }
+    }
+
+    // ── FIX 6: Daily send cap + email logging ───────────────────────────────────
+
+    #[tool(description = "Log that an email was sent to a prospect. Updates prospect email_sent_at timestamp and writes to outreach_log. Call this immediately after sending any email. Also enforces the daily send cap — returns error if cap exceeded.")]
+    async fn log_email_sent(
+        &self,
+        Parameters(params): Parameters<LogEmailParams>,
+    ) -> String {
+        if let Err(e) = self.compliance.rate_limiter.check("log_email_sent").await { return e; }
+        let t = self.compliance.audit.start();
+        let daily_cap = params.daily_cap.unwrap_or(8);
+
+        // Check daily count
+        let today_count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM outreach_log WHERE channel = 'email' AND DATE(sent_at) = DATE('now')"
+        )
+        .fetch_one(&self.db)
+        .await
+        .unwrap_or((0,));
+
+        if today_count.0 >= daily_cap as i64 {
+            return format!(
+                "DAILY CAP REACHED ({}/{}) — no more emails today. Protects domain reputation. Resume tomorrow.",
+                today_count.0, daily_cap
+            );
+        }
+
+        let now = chrono::Utc::now().to_rfc3339();
+        let is_followup = params.is_followup.unwrap_or(false);
+
+        // Log to outreach_log
+        let _ = sqlx::query(
+            "INSERT INTO outreach_log (prospect_id, channel, message, sent_at) VALUES (?, 'email', ?, ?)"
+        )
+        .bind(params.prospect_id)
+        .bind(format!("to={} subject={}", params.to_email.as_deref().unwrap_or(""), params.subject.as_deref().unwrap_or("")))
+        .bind(&now)
+        .execute(&self.db)
+        .await;
+
+        // Update prospect timestamps
+        if is_followup {
+            let _ = sqlx::query("UPDATE prospects SET follow_up_sent_at = ? WHERE id = ?")
+                .bind(&now)
+                .bind(params.prospect_id)
+                .execute(&self.db)
+                .await;
+        } else {
+            let _ = sqlx::query(
+                "UPDATE prospects SET email_sent_at = ?, outreach_status = 'emailed' WHERE id = ?"
+            )
+            .bind(&now)
+            .bind(params.prospect_id)
+            .execute(&self.db)
+            .await;
+        }
+
+        let remaining = daily_cap as i64 - today_count.0 - 1;
+        let out = format!(
+            "Logged. {}/{} emails sent today. {} remaining in daily cap.",
+            today_count.0 + 1, daily_cap, remaining.max(0)
+        );
+        self.compliance.audit.log(&self.db, "log_email_sent", &format!("prospect={}", params.prospect_id), &out, t, &[]).await;
+        out
+    }
+
+    #[tool(description = "Get outreach stats: emails sent today, this week, and how many prospects are in each status stage. Use this to check daily cap before sending. Also shows follow-up queue size.")]
+    async fn get_outreach_stats(&self) -> String {
+        if let Err(e) = self.compliance.rate_limiter.check("get_outreach_stats").await { return e; }
+
+        let today: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM outreach_log WHERE channel='email' AND DATE(sent_at)=DATE('now')"
+        ).fetch_one(&self.db).await.unwrap_or((0,));
+
+        let week: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM outreach_log WHERE channel='email' AND sent_at >= datetime('now','-7 days')"
+        ).fetch_one(&self.db).await.unwrap_or((0,));
+
+        let followup_due: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM prospects WHERE outreach_status='emailed' AND archived=0 AND follow_up_sent_at IS NULL AND email_sent_at IS NOT NULL AND CAST((julianday('now')-julianday(email_sent_at)) AS INTEGER) >= 7"
+        ).fetch_one(&self.db).await.unwrap_or((0,));
+
+        let by_status: Vec<(String, i64)> = sqlx::query_as(
+            "SELECT outreach_status, COUNT(*) FROM prospects WHERE archived=0 GROUP BY outreach_status"
+        ).fetch_all(&self.db).await.unwrap_or_default();
+
+        let status_map: serde_json::Value = by_status.into_iter()
+            .map(|(s, c)| (s, serde_json::json!(c)))
+            .collect::<serde_json::Map<_, _>>()
+            .into();
+
+        serde_json::to_string_pretty(&serde_json::json!({
+            "emails_today": today.0,
+            "daily_cap": 8,
+            "can_send_today": (8 - today.0).max(0),
+            "emails_this_week": week.0,
+            "followup_due_count": followup_due.0,
+            "pipeline_by_status": status_map
+        })).unwrap_or_else(|e| e.to_string())
+    }
+
+    // ── Status expiry: auto-archive stale prospects ─────────────────────────────
+
+    #[tool(description = "Archive prospects stuck in 'emailed' status for longer than N days with no reply. Default: 30 days. Keeps pipeline clean. Archived prospects are hidden from stats but not deleted — recoverable with update_prospect_status. Returns count archived.")]
+    async fn archive_stale_prospects(
+        &self,
+        Parameters(params): Parameters<ArchiveStaleParams>,
+    ) -> String {
+        if let Err(e) = self.compliance.rate_limiter.check("archive_stale_prospects").await { return e; }
+        let t = self.compliance.audit.start();
+        let days = params.days.unwrap_or(30);
+
+        let result = sqlx::query(
+            r#"
+            UPDATE prospects
+            SET archived = 1, outreach_status = 'archived'
+            WHERE outreach_status IN ('emailed', 'new', 'researched')
+              AND archived = 0
+              AND email_sent_at IS NOT NULL
+              AND CAST((julianday('now') - julianday(email_sent_at)) AS INTEGER) >= ?
+            "#
+        )
+        .bind(days)
+        .execute(&self.db)
+        .await;
+
+        let out = match result {
+            Ok(r) => format!("Archived {} stale prospects (no reply in {}+ days)", r.rows_affected(), days),
+            Err(e) => format!("Error: {}", e),
+        };
+        self.compliance.audit.log(&self.db, "archive_stale_prospects", &format!("days={}", days), &out, t, &[]).await;
+        out
     }
 
     #[tool(description = "Export full pipeline as sheet-ready JSON: two arrays — 'prospects' and 'contributions' — with consistent columns. Claude then writes these to Google Sheets via google-workspace MCP. Call this before syncing to sheets. Returns column headers + row data for each table.")]
@@ -881,30 +1260,58 @@ DRAFT NOTES:
         result
     }
 
-    #[tool(description = "Deep-analyze a company's GitHub org: repos, open issues (categorized by type), recent commits (classified by signal), discussions, tech stack, and pain points. Produces next-move hypotheses. Run this BEFORE draft_company_proposal. Takes 10-30s.")]
+    #[tool(description = "Deep-analyze a company's GitHub org: repos, open issues (categorized by type), recent commits (classified by signal), discussions, tech stack, and pain points. Produces next-move hypotheses. Results cached 7 days — subsequent calls are instant. Run this BEFORE draft_company_proposal or draft_proposal_email.")]
     async fn analyze_company_depth(
         &self,
         Parameters(params): Parameters<AnalyzeCompanyParams>,
     ) -> String {
         if let Err(e) = self.compliance.rate_limiter.check("analyze_company_depth").await { return e; }
         let t = self.compliance.audit.start();
-        let max_repos = params.max_repos.unwrap_or(8).min(15);
-        let max_issues = params.max_issues_per_repo.unwrap_or(15).min(30);
-        let result = match proposals::analyze_company_github(
-            &self.http_client,
-            &self.github_token,
-            &params.org,
-            max_repos,
-            max_issues,
-        ).await {
-            Ok(analysis) => serde_json::to_string_pretty(&analysis).unwrap_or_else(|e| e.to_string()),
-            Err(e) => format!("Error: {}", e),
+
+        // Check 7-day cache first
+        let cached: Option<(String,)> = sqlx::query_as(
+            "SELECT analysis FROM analysis_cache WHERE org = ? AND cached_at >= datetime('now', '-7 days')"
+        )
+        .bind(&params.org)
+        .fetch_optional(&self.db)
+        .await
+        .unwrap_or(None);
+
+        let result = if let Some((cached_json,)) = cached {
+            format!("{{\"cached\":true,\"org\":\"{}\",\"analysis\":{}}}", params.org, cached_json)
+        } else {
+            let max_repos = params.max_repos.unwrap_or(8).min(15);
+            let max_issues = params.max_issues_per_repo.unwrap_or(15).min(30);
+            match proposals::analyze_company_github(
+                &self.http_client,
+                &self.github_token,
+                &params.org,
+                max_repos,
+                max_issues,
+            ).await {
+                Ok(analysis) => {
+                    let json = serde_json::to_string(&analysis).unwrap_or_default();
+                    let company = params.company_name.as_deref().unwrap_or(&params.org);
+                    // Upsert into cache
+                    let _ = sqlx::query(
+                        "INSERT INTO analysis_cache (org, company, analysis, cached_at) VALUES (?, ?, ?, datetime('now'))
+                         ON CONFLICT(org) DO UPDATE SET analysis=excluded.analysis, company=excluded.company, cached_at=excluded.cached_at"
+                    )
+                    .bind(&params.org)
+                    .bind(company)
+                    .bind(&json)
+                    .execute(&self.db)
+                    .await;
+                    format!("{{\"cached\":false,\"org\":\"{}\",\"analysis\":{}}}", params.org, json)
+                }
+                Err(e) => format!("Error: {}", e),
+            }
         };
         self.compliance.audit.log(&self.db, "analyze_company_depth", &params.org, &result, t, &[]).await;
         result
     }
 
-    #[tool(description = "Generate targeted technical proposals for a company based on their GitHub analysis. Each proposal includes: problem statement (what they're about to hit), evidence from their repo, proposed solution, why now, open question for discussion, and a ready-to-send discussion opener. NOT a job application — an engineering discussion starter. Run analyze_company_depth first.")]
+    #[tool(description = "Generate targeted technical proposals for a company. Uses cached analysis (run analyze_company_depth first). Each proposal: problem statement, evidence from repo, proposed solution, why now, open question, discussion opener. Engineering-peer tone — NOT a job application. Stores proposals in DB.")]
     async fn draft_company_proposal(
         &self,
         Parameters(params): Parameters<DraftProposalParams>,
@@ -912,16 +1319,40 @@ DRAFT NOTES:
         if let Err(e) = self.compliance.rate_limiter.check("draft_company_proposal").await { return e; }
         let t = self.compliance.audit.start();
 
-        // Re-run analysis to generate proposals (analysis is stateless, no cache needed)
-        let analysis = match proposals::analyze_company_github(
-            &self.http_client,
-            &self.github_token,
-            &params.org,
-            8,
-            15,
-        ).await {
-            Ok(a) => a,
-            Err(e) => return format!("Error analyzing {}: {}", params.org, e),
+        // Load from cache — don't re-run analysis
+        let cached: Option<(String,)> = sqlx::query_as(
+            "SELECT analysis FROM analysis_cache WHERE org = ? AND cached_at >= datetime('now', '-7 days')"
+        )
+        .bind(&params.org)
+        .fetch_optional(&self.db)
+        .await
+        .unwrap_or(None);
+
+        let analysis = if let Some((json,)) = cached {
+            match serde_json::from_str::<proposals::CompanyAnalysis>(&json) {
+                Ok(a) => a,
+                Err(e) => return format!("Cache parse error: {}. Re-run analyze_company_depth.", e),
+            }
+        } else {
+            // Fallback: run live (and cache)
+            match proposals::analyze_company_github(
+                &self.http_client, &self.github_token, &params.org, 8, 15,
+            ).await {
+                Ok(a) => {
+                    let json = serde_json::to_string(&a).unwrap_or_default();
+                    let _ = sqlx::query(
+                        "INSERT INTO analysis_cache (org, company, analysis, cached_at) VALUES (?, ?, ?, datetime('now'))
+                         ON CONFLICT(org) DO UPDATE SET analysis=excluded.analysis, company=excluded.company, cached_at=excluded.cached_at"
+                    )
+                    .bind(&params.org)
+                    .bind(&params.company_name)
+                    .bind(&json)
+                    .execute(&self.db)
+                    .await;
+                    a
+                }
+                Err(e) => return format!("Error analyzing {}: {}. Run analyze_company_depth first.", params.org, e),
+            }
         };
 
         let company_name = &params.company_name;
@@ -929,13 +1360,226 @@ DRAFT NOTES:
         let proposal_list = proposals::draft_technical_proposal(&analysis, company_name, focus);
 
         let result = if proposal_list.is_empty() {
-            format!("No proposals generated for {} with focus={:?}. Try running analyze_company_depth first to see what pain points exist, then re-run with a different focus_area.", params.org, focus)
+            format!("No proposals generated for {} with focus={:?}. Pain points may be Low severity — try a different focus_area or check analyze_company_depth output.", params.org, focus)
         } else {
-            serde_json::to_string_pretty(&proposal_list).unwrap_or_else(|e| e.to_string())
+            let json = serde_json::to_string_pretty(&proposal_list).unwrap_or_else(|e| e.to_string());
+            // Store in proposals table
+            let _ = sqlx::query(
+                "INSERT INTO proposals (org, company, focus_area, proposals) VALUES (?, ?, ?, ?)"
+            )
+            .bind(&params.org)
+            .bind(company_name)
+            .bind(focus)
+            .bind(&json)
+            .execute(&self.db)
+            .await;
+            json
         };
 
         let input = format!("org={} company={} focus={:?}", params.org, company_name, focus);
         self.compliance.audit.log(&self.db, "draft_company_proposal", &input, &result, t, &[]).await;
+        result
+    }
+
+    #[tool(description = "Route a prospect to Direction A (Proposal) or Direction B (Job). Checks: GitHub org exists? Pain points ≥ Medium? Open role matching stack? Sets direction in DB. Run after save_prospect and analyze_company_depth. Returns routing decision + reasoning.")]
+    async fn route_prospect(
+        &self,
+        Parameters(params): Parameters<RouteProspectParams>,
+    ) -> String {
+        if let Err(e) = self.compliance.rate_limiter.check("route_prospect").await { return e; }
+        let t = self.compliance.audit.start();
+
+        // Load prospect
+        let prospect = sqlx::query_as::<_, (i64, String, Option<String>, Option<String>)>(
+            "SELECT id, name, company, notes FROM prospects WHERE id = ?"
+        )
+        .bind(params.prospect_id)
+        .fetch_optional(&self.db)
+        .await
+        .unwrap_or(None);
+
+        let (prospect_id, prospect_name, company, notes) = match prospect {
+            Some(p) => p,
+            None => return format!("Prospect {} not found.", params.prospect_id),
+        };
+
+        // Check cached analysis for pain signals
+        let cached: Option<(String,)> = sqlx::query_as(
+            "SELECT analysis FROM analysis_cache WHERE org = ? AND cached_at >= datetime('now', '-7 days')"
+        )
+        .bind(&params.github_org)
+        .fetch_optional(&self.db)
+        .await
+        .unwrap_or(None);
+
+        let (direction, reasoning, pain_summary) = if let Some((json,)) = cached {
+            match serde_json::from_str::<proposals::CompanyAnalysis>(&json) {
+                Ok(analysis) => {
+                    let high_pain = analysis.pain_points.iter().filter(|p| matches!(p.severity, proposals::PainSeverity::High)).count();
+                    let med_pain = analysis.pain_points.iter().filter(|p| matches!(p.severity, proposals::PainSeverity::Medium)).count();
+                    let pain_areas: Vec<&str> = analysis.pain_points.iter()
+                        .filter(|p| !matches!(p.severity, proposals::PainSeverity::Low))
+                        .map(|p| p.area.as_str())
+                        .collect();
+                    let stack = analysis.tech_stack.join(", ");
+
+                    if high_pain > 0 || med_pain >= 2 {
+                        let summary = format!("{} high + {} medium pain points: [{}]. Stack: {}", high_pain, med_pain, pain_areas.join(", "), stack);
+                        ("proposal", "Strong technical pain signals found — engineering discussion will land better than job application", summary)
+                    } else if params.has_open_role.unwrap_or(false) {
+                        ("job", "Low pain signals but has open role matching stack — apply directly", format!("Stack: {}", stack))
+                    } else {
+                        ("proposal", "No open role found, some pain signals — proposal direction keeps door open", format!("Stack: {}", stack))
+                    }
+                }
+                Err(_) => ("proposal", "Cache parse failed — defaulting to proposal direction", String::new()),
+            }
+        } else if params.has_open_role.unwrap_or(false) {
+            ("job", "No GitHub analysis cached — open role present, route to job direction", String::new())
+        } else {
+            ("proposal", "No GitHub analysis cached — run analyze_company_depth for better routing. Defaulting to proposal.", String::new())
+        };
+
+        // Update prospect direction in DB
+        let now = chrono::Utc::now().to_rfc3339();
+        let _ = sqlx::query(
+            "UPDATE prospects SET direction = ?, routed_at = ? WHERE id = ?"
+        )
+        .bind(direction)
+        .bind(&now)
+        .bind(prospect_id)
+        .execute(&self.db)
+        .await;
+
+        let result = serde_json::to_string_pretty(&serde_json::json!({
+            "prospect": { "id": prospect_id, "name": prospect_name, "company": company },
+            "direction": direction,
+            "reasoning": reasoning,
+            "pain_summary": pain_summary,
+            "next_step": if direction == "proposal" {
+                "Run draft_company_proposal to generate technical proposals, then draft_proposal_email to create outreach"
+            } else {
+                "Run draft_warm_email with tone=candidate for job application outreach"
+            }
+        })).unwrap_or_else(|e| e.to_string());
+
+        self.compliance.audit.log(&self.db, "route_prospect", &format!("id={} org={}", params.prospect_id, params.github_org), &result, t, &[]).await;
+        result
+    }
+
+    #[tool(description = "Draft a technical proposal email using cached company analysis. Engineering-peer tone — talks about THEIR pain points and tech direction, not your job search. No placeholders. Fills from actual GitHub analysis data. Run analyze_company_depth + draft_company_proposal first.")]
+    async fn draft_proposal_email(
+        &self,
+        Parameters(params): Parameters<DraftProposalEmailParams>,
+    ) -> String {
+        if let Err(e) = self.compliance.rate_limiter.check("draft_proposal_email").await { return e; }
+        let t = self.compliance.audit.start();
+
+        // Load analysis from cache
+        let cached: Option<(String,)> = sqlx::query_as(
+            "SELECT analysis FROM analysis_cache WHERE org = ?"
+        )
+        .bind(&params.org)
+        .fetch_optional(&self.db)
+        .await
+        .unwrap_or(None);
+
+        // Load latest proposal from DB
+        let stored_proposal: Option<(String,)> = sqlx::query_as(
+            "SELECT proposals FROM proposals WHERE org = ? ORDER BY created_at DESC LIMIT 1"
+        )
+        .bind(&params.org)
+        .fetch_optional(&self.db)
+        .await
+        .unwrap_or(None);
+
+        let analysis = match cached {
+            Some((json,)) => serde_json::from_str::<proposals::CompanyAnalysis>(&json).ok(),
+            None => None,
+        };
+
+        let (pain_area, evidence_line, proposed_angle, stack_ref) = if let Some(ref a) = analysis {
+            let top_pain = a.pain_points.iter()
+                .find(|p| matches!(p.severity, proposals::PainSeverity::High))
+                .or_else(|| a.pain_points.iter().find(|p| matches!(p.severity, proposals::PainSeverity::Medium)));
+
+            let (area, evidence, angle) = if let Some(pain) = top_pain {
+                let ev = pain.evidence.first().cloned().unwrap_or_default();
+                let angle = a.next_move_hypothesis.first()
+                    .map(|h| h.proposal_angle.as_str())
+                    .unwrap_or("scaling their core infra");
+                (pain.area.clone(), ev, angle.to_string())
+            } else {
+                let area = a.tech_stack.first().cloned().unwrap_or_else(|| "infrastructure".to_string());
+                ("general".to_string(), format!("reviewed {} repos, {} open issues", a.repos.len(), a.open_issues.len()), format!("improving {} layer", area))
+            };
+
+            let stack = a.tech_stack.iter().take(3).cloned().collect::<Vec<_>>().join("/");
+            (area, evidence, angle, stack)
+        } else {
+            ("infrastructure".to_string(), "GitHub repo analysis".to_string(), "scaling the core pipeline".to_string(), String::new())
+        };
+
+        // Pick top proposal discussion opener if available
+        let opener = if let Some((proposals_json,)) = stored_proposal {
+            serde_json::from_str::<Vec<serde_json::Value>>(&proposals_json)
+                .ok()
+                .and_then(|ps| {
+                    let p = ps.into_iter().find(|p| {
+                        params.focus_area.as_ref()
+                            .map(|f| p["problem_statement"].as_str().unwrap_or("").to_lowercase().contains(f.as_str()))
+                            .unwrap_or(true)
+                    });
+                    p.and_then(|p| p["discussion_opener"].as_str().map(|s| s.to_string()))
+                })
+        } else {
+            None
+        };
+
+        let first_name = &params.first_name;
+        let company_name = &params.company_name;
+        let sender = &self.sender_email;
+
+        let body = if let Some(ref op) = opener {
+            // Use the generated discussion opener from proposal engine
+            format!(
+                "{first_name},\n\n{opener}\n\nI've been working on {stack_ref} infrastructure — happy to dig into this if useful.\n\nSaraswat\n{sender}\nhttps://saraswat.vercel.app/",
+                first_name = first_name,
+                opener = op,
+                stack_ref = if stack_ref.is_empty() { "distributed systems".to_string() } else { stack_ref.clone() },
+                sender = sender,
+            )
+        } else {
+            // Fallback: build from raw pain data
+            format!(
+                "{first_name},\n\nLooking at {company}'s {pain_area} work — {evidence}. The direction toward {angle} is the interesting part.\n\nI've been building in this space. Worth a quick sync to compare notes?\n\nSaraswat\n{sender}\nhttps://saraswat.vercel.app/",
+                first_name = first_name,
+                company = company_name,
+                pain_area = pain_area,
+                evidence = evidence_line,
+                angle = proposed_angle,
+                sender = sender,
+            )
+        };
+
+        let subject = params.subject.unwrap_or_else(|| {
+            format!("{} — {}", company_name, pain_area)
+        });
+
+        let result = serde_json::to_string_pretty(&serde_json::json!({
+            "to": params.recipient_email,
+            "from": sender,
+            "subject": subject,
+            "body": body,
+            "tone": "peer",
+            "direction": "proposal",
+            "pain_area": pain_area,
+            "stack": stack_ref,
+            "status": "draft — review before sending. confirm with 'send it'.",
+            "notes": "No placeholders. Filled from live GitHub analysis. Peer tone — not candidate tone."
+        })).unwrap_or_else(|e| e.to_string());
+
+        self.compliance.audit.log(&self.db, "draft_proposal_email", &format!("org={} to={}", params.org, params.recipient_email), &result, t, &[]).await;
         result
     }
 }
@@ -1102,6 +1746,10 @@ pub struct DraftEmailParams {
     pub contribution_id: i64,
     /// Prospect ID from list_prospects
     pub prospect_id: i64,
+    /// Email tone: "peer" (engineering discussion, Direction A) or "candidate" (job application, Direction B). Default: peer
+    pub tone: Option<String>,
+    /// GitHub org for auto-filling company context from cached analysis — optional, improves output
+    pub github_org: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -1186,6 +1834,80 @@ pub struct WellfoundParams {
     pub remote_only: Option<bool>,
     /// Max results (default 20)
     pub limit: Option<usize>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct CheckCompanyParams {
+    /// Company domain or website URL e.g. "stripe.com" or "https://stripe.com/pricing"
+    pub domain: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct RepoHealthParams {
+    /// GitHub repo owner e.g. "tokio-rs"
+    pub owner: String,
+    /// GitHub repo name e.g. "tokio"
+    pub repo: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct ContactedCheckParams {
+    /// Email to check for duplicates
+    pub email: Option<String>,
+    /// GitHub username to check for duplicates
+    pub github: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct FollowupDueParams {
+    /// Days since first email with no reply (default 7)
+    pub days: Option<i64>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct LogEmailParams {
+    /// Prospect ID from list_prospects
+    pub prospect_id: i64,
+    /// Email address sent to
+    pub to_email: Option<String>,
+    /// Subject line for the record
+    pub subject: Option<String>,
+    /// true if this is a follow-up (Day 7+), false for first email
+    pub is_followup: Option<bool>,
+    /// Daily send cap (default 8)
+    pub daily_cap: Option<i64>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct ArchiveStaleParams {
+    /// Days with no reply before archiving (default 30)
+    pub days: Option<i64>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct RouteProspectParams {
+    /// Prospect ID from list_prospects
+    pub prospect_id: i64,
+    /// GitHub org login for the company (used to load cached analysis)
+    pub github_org: String,
+    /// True if company has an open role matching your stack (Rust/Go/data infra)
+    pub has_open_role: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct DraftProposalEmailParams {
+    /// GitHub org login — must have cached analysis from analyze_company_depth
+    pub org: String,
+    /// Company display name
+    pub company_name: String,
+    /// Recipient first name
+    pub first_name: String,
+    /// Recipient email address
+    pub recipient_email: String,
+    /// Focus area to pick the right proposal: "scaling", "ai", "database", "integration" — empty = top pain
+    pub focus_area: Option<String>,
+    /// Optional custom subject line — auto-generated if empty
+    pub subject: Option<String>,
 }
 
 #[tool_handler]

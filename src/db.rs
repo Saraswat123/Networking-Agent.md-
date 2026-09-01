@@ -86,5 +86,61 @@ pub async fn init_pool(db_path: &str) -> Result<SqlitePool> {
     .execute(&pool)
     .await?;
 
+    // ── Analysis cache — stores GitHub analysis JSON, expires after 7 days ──────
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS analysis_cache (
+            org         TEXT PRIMARY KEY,
+            company     TEXT,
+            analysis    TEXT NOT NULL,
+            cached_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        "#,
+    )
+    .execute(&pool)
+    .await?;
+
+    // ── Proposals — generated technical proposals per company ──────────────────
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS proposals (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            org         TEXT NOT NULL,
+            company     TEXT NOT NULL,
+            focus_area  TEXT,
+            proposals   TEXT NOT NULL,
+            sent_at     DATETIME,
+            replied_at  DATETIME,
+            created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_proposals_org ON proposals(org);
+        "#,
+    )
+    .execute(&pool)
+    .await?;
+
+    // Migrations — ALTER TABLE silently fails if column already exists; that's fine.
+    for col_sql in &[
+        "ALTER TABLE prospects ADD COLUMN domain TEXT",
+        "ALTER TABLE prospects ADD COLUMN email_sent_at DATETIME",
+        "ALTER TABLE prospects ADD COLUMN follow_up_sent_at DATETIME",
+        "ALTER TABLE prospects ADD COLUMN last_commit_date TEXT",
+        "ALTER TABLE prospects ADD COLUMN archived INTEGER DEFAULT 0",
+        "ALTER TABLE prospects ADD COLUMN website TEXT",
+        "ALTER TABLE prospects ADD COLUMN daily_email_blocked INTEGER DEFAULT 0",
+        // 2-direction architecture
+        "ALTER TABLE prospects ADD COLUMN direction TEXT DEFAULT 'proposal'",
+        "ALTER TABLE prospects ADD COLUMN proposal_id INTEGER",
+        "ALTER TABLE prospects ADD COLUMN job_score INTEGER",
+        "ALTER TABLE prospects ADD COLUMN routed_at DATETIME",
+    ] {
+        let _ = sqlx::query(col_sql).execute(&pool).await;
+    }
+
+    // Unique index on domain (non-null rows only) for dedup
+    let _ = sqlx::query(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_prospects_domain ON prospects(domain) WHERE domain IS NOT NULL"
+    ).execute(&pool).await;
+
     Ok(pool)
 }
