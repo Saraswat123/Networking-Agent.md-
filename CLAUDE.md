@@ -1,6 +1,52 @@
 # Networking Agent
 
-Use the `networking-agent` MCP server tools to build and manage a prospect pipeline.
+2-direction architecture. Direction A (Proposal) = 70% budget. Direction B (Job) = 30%.
+
+## 2-Direction Workflow
+
+### Direction A — Proposal (primary)
+```
+search_funding_news / search_github_trending / search_remotive
+    ↓
+save_prospect + analyze_company_depth  ← cached 7 days
+    ↓
+route_prospect → direction: proposal
+    ↓
+draft_company_proposal  ← reads cache, no re-analysis
+    ↓
+draft_proposal_email    ← peer tone, auto-filled, no placeholder
+    ↓  (confirm 'send it' before sending)
+log_email_sent → outreach_status: emailed
+```
+
+### Direction B — Job (secondary)
+```
+search_workatastartup / search_hn_hiring / search_remotive
+    ↓
+save_prospect
+    ↓
+route_prospect → direction: job
+    ↓
+track_contribution (open real PR first)
+    ↓
+draft_warm_email tone=candidate  ← candidate tone, portfolio link
+    ↓  (confirm 'send it' before sending)
+log_email_sent → outreach_status: emailed
+```
+
+### Reply Monitor
+```
+python3 agents/reply_monitor.py         # check + update DB
+python3 agents/reply_monitor.py --dry-run   # preview only
+python3 agents/reply_monitor.py --followups # show follow-up queue
+```
+
+### Email Rules (always)
+- From: saraswatdas94@gmail.com ONLY
+- No "Dear Name". No teaser hooks. State problem + solution plainly
+- Lead with business impact, not tech specs
+- Signoff always includes https://saraswat.vercel.app/
+- "send it" confirmation required before any external email
 
 ## Tools Available
 
@@ -42,6 +88,12 @@ Use the `networking-agent` MCP server tools to build and manage a prospect pipel
 - `track_contribution` — log PR/comment submitted; links to prospect
 - `list_contributions` — see what's submitted/acknowledged/merged
 
+### Propose (Direction A)
+- `analyze_company_depth` — deep GitHub org analysis: repos, issues, commits, pain points, tech stack. **Cached 7 days** — instant on repeat calls. Run this FIRST.
+- `draft_company_proposal` — generate technical proposals from cached analysis. Stores in DB proposals table.
+- `route_prospect` — decide Direction A (Proposal) vs B (Job) based on pain signals + open role. Updates `direction` column in DB.
+- `draft_proposal_email` — peer-tone email auto-filled from cached analysis. No placeholders. Discussion opener from proposal engine.
+
 ### Pipeline & Sync
 - `save_prospect` — add to SQLite pipeline
 - `list_prospects` — show full pipeline
@@ -50,23 +102,43 @@ Use the `networking-agent` MCP server tools to build and manage a prospect pipel
 
 ## Outreach Status Flow
 
-`new` → `researched` → `github_engaged` → `x_engaged` → `emailed` → `replied` → `meeting_scheduled`
+`new` → `researched` → `github_engaged` → `emailed` → `replied` → `meeting_scheduled`
 
-## Full Pipeline (run in order)
+## Prospect Direction Field
 
-1. **DISCOVER** — search_funding_news (just-raised = hiring NOW) / search_workatastartup / search_hn_hiring / get_yc_companies / search_remotive (global) / search_github_trending (Rust/Go) / search_wellfound / search_producthunt / search_crunchbase
-2. **ENRICH** — enrich_company (Clearbit) or lookup_tech_stack (free fallback). Skip if >50 emp or no GitHub
-3. **FIND PERSON** — search_apollo_people (name+title free, email costs credits) → get_yc_company_team / get_org_members for GitHub email
-4. **FIND CONTRIBUTION** — list_org_repos → score_repo_issues → pick issue score ≥60, unassigned, no linked PR
-5. **CONTRIBUTE** — open real PR → track_contribution (status: submitted)
-6. **EMAIL TRIGGER** — list_contributions (status: acknowledged) → draft warm 3-sentence email referencing specific PR
+`direction` column on each prospect:
+- `proposal` — Direction A: send technical proposal, peer tone
+- `job` — Direction B: send candidate application, job tone
+- `null` — not yet routed — run `route_prospect` first
+
+## Full Pipeline — Direction A (Proposal, 70%)
+
+1. **DISCOVER** — search_funding_news + search_github_trending (Rust/Go) + search_remotive + search_wellfound
+2. **SAVE** — save_prospect (include website for domain dedup)
+3. **ANALYZE** — analyze_company_depth (cached 7d) — reads GitHub org: issues, commits, pain points, tech stack
+4. **ROUTE** — route_prospect — reads cached analysis → sets direction=proposal if pain signals ≥ Medium
+5. **PROPOSE** — draft_company_proposal — generates proposals from cache, stores in DB
+6. **EMAIL** — draft_proposal_email — peer tone, auto-filled, no placeholder, portfolio link
+7. **CONFIRM + SEND** — review draft → "send it" → log_email_sent
+8. **MONITOR** — reply_monitor.py (runs every 6h via cron) → updates outreach_status=replied
+
+## Full Pipeline — Direction B (Job, 30%)
+
+1. **DISCOVER** — search_workatastartup + search_hn_hiring + search_remotive (category: software-dev)
+2. **SAVE** — save_prospect with role field
+3. **ROUTE** — route_prospect with has_open_role=true → sets direction=job
+4. **CONTRIBUTE** — list_org_repos → score_repo_issues ≥60 → open PR → track_contribution
+5. **EMAIL** — draft_warm_email with tone=candidate (after PR acknowledged)
+6. **CONFIRM + SEND** — review → "send it" → log_email_sent
 
 ## Outreach Rules
 
-- GitHub PR FIRST, email only after PR acknowledged/merged
-- Email max 3 sentences: (1) reference specific PR, (2) why you care about what they build, (3) one ask
-- No "Dear Name". No teaser hooks. No AI slop
-- Never mass-blast — one personalized touch at a time
+- saraswatdas94@gmail.com ONLY — never saraswat.das@aits.group
+- No "Dear Name". No teaser hooks. State problem + solution plainly
+- Lead with business/financial impact, not tech specs
+- Portfolio link https://saraswat.vercel.app/ in every signoff
+- "send it" confirmation required — never auto-send
+- Daily cap: 8 emails max (enforced by log_email_sent tool)
 
 ## Sheets Sync
 
