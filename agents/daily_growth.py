@@ -40,7 +40,9 @@ import requests
 OUTPUT_DIR = Path(__file__).parent / "output" / "daily_growth"
 LOG_FILE = OUTPUT_DIR / "growth_log.jsonl"
 
-LINKEDIN_DAILY_LIMIT = 20
+LINKEDIN_CONNECT_LIMIT = 35   # split: 20 morning + 15 evening
+LINKEDIN_FOLLOW_LIMIT = 150   # follows unlimited — no approval needed
+LINKEDIN_DAILY_LIMIT = LINKEDIN_CONNECT_LIMIT  # alias
 X_DAILY_LIMIT = 15
 
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
@@ -117,19 +119,27 @@ def _log(action: str, target: str, result: str, channel: str = ""):
     print(f"  [{channel}] {action}: {target} → {result}")
 
 
+_SUCCESS_RESULTS = {
+    ("linkedin", "connect"): "sent",
+    ("linkedin", "follow"):  "followed",
+    ("x",        "reply"):   "replied",
+}
+
 def _today_count(channel: str, action: str) -> int:
     if not LOG_FILE.exists():
         return 0
     today = date.today().isoformat()
+    success = _SUCCESS_RESULTS.get((channel, action))
     count = 0
     with open(LOG_FILE) as f:
         for line in f:
             try:
                 e = json.loads(line)
+                result = e.get("result", "")
                 if (e.get("date") == today
                         and e.get("channel") == channel
                         and e.get("action") == action
-                        and e.get("result") != "dry_run"):   # don't count dry runs
+                        and (result == success if success else result not in ("dry_run", "error", "no_connect_button", "no_follow_button"))):
                     count += 1
             except Exception:
                 pass
@@ -362,6 +372,76 @@ async def run_linkedin_growth(dry_run: bool = False, limit: int = LINKEDIN_DAILY
     print(f"\n[linkedin] Done — {sent} connections sent today (total: {sent_today + sent}/{limit})")
 
 
+async def run_linkedin_follows(dry_run: bool = False, limit: int = LINKEDIN_FOLLOW_LIMIT):
+    """Follow profiles — no approval needed, instant, builds count fast."""
+    followed_today = _today_count("linkedin", "follow")
+    remaining = limit - followed_today
+    if remaining <= 0:
+        print(f"\n[linkedin-follow] Daily follow limit reached ({limit}/day).")
+        return
+
+    print(f"\n[linkedin-follow] Sourcing follow targets (want {remaining})...")
+
+    sys.path.insert(0, str(Path(__file__).parent))
+    import linkedin_agent
+
+    # Use broader keywords for follows — more profiles = more visibility
+    follow_keywords = random.sample([
+        "CEO artificial intelligence",
+        "founder AI startup",
+        "CTO technology startup",
+        "venture capital partner",
+        "angel investor technology",
+        "managing director investment",
+        "product manager AI",
+        "engineering manager",
+        "head of engineering AI",
+        "VP engineering technology",
+        "chief product officer",
+        "principal engineer",
+        "staff engineer",
+        "AI researcher",
+        "machine learning engineer",
+    ], 4)
+
+    all_urls = []
+    for keyword in follow_keywords:
+        if dry_run:
+            all_urls += [f"https://linkedin.com/in/example-follow-{i}" for i in range(1, 6)]
+        else:
+            urls = await linkedin_agent.search_people(keyword, limit=15)
+            all_urls += urls
+            await asyncio.sleep(random.uniform(3, 6))
+
+    # Deduplicate
+    seen = set()
+    unique_urls = [u for u in all_urls if u not in seen and not seen.add(u)]
+    random.shuffle(unique_urls)
+
+    print(f"  {len(unique_urls)} profiles to follow")
+
+    followed = 0
+    for profile_url in unique_urls:
+        if followed >= remaining:
+            break
+
+        if dry_run:
+            print(f"  [DRY RUN] Follow: {profile_url}")
+            _log("follow", profile_url, "dry_run", "linkedin")
+            followed += 1
+            continue
+
+        result = await linkedin_agent.follow_profile(profile_url)
+        status = result.get("status", "error")
+        _log("follow", profile_url, status, "linkedin")
+        if status == "followed":
+            followed += 1
+
+        await asyncio.sleep(random.uniform(3, 8))
+
+    print(f"\n[linkedin-follow] Done — {followed} follows today (total: {followed_today + followed}/{limit})")
+
+
 def _generate_generic_note() -> str:
     """Pick a random professional connection note from a pool.
     Mix of founder/CEO/VC tone and peer engineer tone."""
@@ -447,30 +527,35 @@ async def run_x_growth(dry_run: bool = False, limit: int = X_DAILY_LIMIT):
 def show_stats():
     today = date.today().isoformat()
     li_connects = _today_count("linkedin", "connect")
-    x_replies = _today_count("x", "reply")
+    li_follows  = _today_count("linkedin", "follow")
+    x_replies   = _today_count("x", "reply")
 
     print(f"\n{'─'*50}")
     print(f"DAILY GROWTH STATS — {today}")
     print(f"{'─'*50}")
-    print(f"LinkedIn connections: {li_connects}/{LINKEDIN_DAILY_LIMIT}")
+    print(f"LinkedIn connections: {li_connects}/{LINKEDIN_CONNECT_LIMIT}")
+    print(f"LinkedIn follows:     {li_follows}/{LINKEDIN_FOLLOW_LIMIT}")
     print(f"X replies:           {x_replies}/{X_DAILY_LIMIT}")
 
-    # 7-day totals from log
+    # all-time totals from log
     if LOG_FILE.exists():
-        week_li = week_x = 0
+        week_li_c = week_li_f = week_x = 0
         with open(LOG_FILE) as f:
             for line in f:
                 try:
                     e = json.loads(line)
                     if e.get("channel") == "linkedin" and e.get("action") == "connect" and e.get("result") == "sent":
-                        week_li += 1
+                        week_li_c += 1
+                    elif e.get("channel") == "linkedin" and e.get("action") == "follow" and e.get("result") == "followed":
+                        week_li_f += 1
                     elif e.get("channel") == "x" and e.get("action") == "reply" and e.get("result") == "replied":
                         week_x += 1
                 except Exception:
                     pass
         print(f"\nAll time:")
-        print(f"  LinkedIn: {week_li} connections sent")
-        print(f"  X:        {week_x} replies posted")
+        print(f"  LinkedIn connects: {week_li_c}")
+        print(f"  LinkedIn follows:  {week_li_f}")
+        print(f"  X replies:         {week_x}")
     print(f"{'─'*50}\n")
 
 
@@ -482,7 +567,8 @@ async def main():
     parser.add_argument("--x-only", action="store_true")
     parser.add_argument("--dry-run", action="store_true", help="Print targets without sending")
     parser.add_argument("--stats", action="store_true", help="Show stats only")
-    parser.add_argument("--li-limit", type=int, default=LINKEDIN_DAILY_LIMIT)
+    parser.add_argument("--li-limit", type=int, default=LINKEDIN_CONNECT_LIMIT)
+    parser.add_argument("--follow-limit", type=int, default=LINKEDIN_FOLLOW_LIMIT)
     parser.add_argument("--x-limit", type=int, default=X_DAILY_LIMIT)
     args = parser.parse_args()
 
@@ -497,6 +583,7 @@ async def main():
 
     if not args.x_only:
         await run_linkedin_growth(dry_run=args.dry_run, limit=args.li_limit)
+        await run_linkedin_follows(dry_run=args.dry_run, limit=args.follow_limit)
 
     if not args.linkedin_only:
         await run_x_growth(dry_run=args.dry_run, limit=args.x_limit)
@@ -509,7 +596,8 @@ async def main_args(
     linkedin_only: bool = False,
     x_only: bool = False,
     stats_only: bool = False,
-    li_limit: int = LINKEDIN_DAILY_LIMIT,
+    li_limit: int = LINKEDIN_CONNECT_LIMIT,
+    follow_limit: int = LINKEDIN_FOLLOW_LIMIT,
     x_limit: int = X_DAILY_LIMIT,
 ):
     if stats_only:
@@ -520,6 +608,7 @@ async def main_args(
     show_stats()
     if not x_only:
         await run_linkedin_growth(dry_run=dry_run, limit=li_limit)
+        await run_linkedin_follows(dry_run=dry_run, limit=follow_limit)
     if not linkedin_only:
         await run_x_growth(dry_run=dry_run, limit=x_limit)
     show_stats()

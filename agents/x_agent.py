@@ -242,6 +242,63 @@ def post_tweet(text: str, dry_run: bool = False) -> dict:
     return {"status": "posted", "tweet_id": tweet_id, "url": url}
 
 
+def post_thread(tweets: list[str], dry_run: bool = False) -> list[dict]:
+    """
+    Post a Twitter thread. Each tweet replies to the previous.
+
+    Args:
+        tweets: List of tweet texts (each under 280 chars)
+        dry_run: Print without posting
+
+    Returns:
+        List of {status, tweet_id, url} per tweet
+    """
+    if dry_run:
+        print(f"\n[DRY RUN] Thread — {len(tweets)} tweets\n")
+        for i, t in enumerate(tweets, 1):
+            print(f"[{i}/{len(tweets)}] ({len(t)} chars)")
+            print(t)
+            print()
+        return [{"status": "dry_run", "tweet_id": f"dry_{i}"} for i in range(len(tweets))]
+
+    client = _get_client()
+    results = []
+    prev_id = None
+
+    for i, text in enumerate(tweets, 1):
+        if len(text) > 280:
+            text = text[:277] + "..."
+        try:
+            kwargs = {"text": text}
+            if prev_id:
+                kwargs["in_reply_to_tweet_id"] = prev_id
+            result = client.create_tweet(**kwargs)
+            tweet_id = str(result.data.get("id", ""))
+            url = f"https://x.com/SaraswatDas13/status/{tweet_id}"
+            print(f"  [{i}/{len(tweets)}] Posted → {url}")
+            results.append({"status": "posted", "tweet_id": tweet_id, "url": url})
+            prev_id = tweet_id
+            # Small delay between tweets
+            import time; time.sleep(1.5)
+        except Exception as e:
+            print(f"  [{i}/{len(tweets)}] ERROR: {e}")
+            results.append({"status": "error", "error": str(e)})
+            break
+
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    log_path = OUTPUT_DIR / "threads_posted.jsonl"
+    with open(log_path, "a") as f:
+        import json
+        f.write(json.dumps({
+            "date": date.today().isoformat(),
+            "tweets": len(tweets),
+            "thread_url": results[0].get("url", "") if results else "",
+            "results": results,
+        }) + "\n")
+
+    return results
+
+
 def get_reply_stats() -> dict:
     today = date.today().isoformat()
     count = 0

@@ -53,6 +53,62 @@ def search_company(name: str, limit: int = 5) -> list[dict]:
     ]
 
 
+def search_by_sic(sic_code: str, limit: int = 50, incorporated_from: Optional[str] = None) -> list[dict]:
+    """
+    Bulk discovery by SIC code via Companies House Advanced Search.
+    Needs UK_CH_API_KEY. Returns active companies only.
+
+    incorporated_from: "YYYY-MM-DD" — filter to companies incorporated after this date
+    """
+    key = os.environ.get("UK_CH_API_KEY", "")
+    if not key:
+        return []
+    params = {
+        "sic_codes": sic_code,
+        "company_status": "active",
+        "size": min(limit, 100),
+    }
+    if incorporated_from:
+        params["incorporated_from"] = incorporated_from
+    resp = requests.get(
+        f"{BASE}/advanced-search/companies",
+        params=params,
+        headers=_headers(),
+        timeout=15,
+    )
+    if resp.status_code != 200:
+        return []
+    items = resp.json().get("items", [])
+    return [
+        {
+            "name": i.get("company_name"),
+            "company_number": i.get("company_number"),
+            "status": i.get("company_status"),
+            "type": i.get("company_type"),
+            "incorporated": i.get("date_of_creation"),
+            "address": (i.get("registered_office_address") or {}).get("address_line_1", ""),
+            "postcode": (i.get("registered_office_address") or {}).get("postal_code", ""),
+            "locality": (i.get("registered_office_address") or {}).get("locality", ""),
+            "sic_codes": i.get("sic_codes", []),
+            "ch_url": f"https://find-and-update.company-information.service.gov.uk/company/{i.get('company_number')}",
+        }
+        for i in items[:limit]
+    ]
+
+
+# SIC codes for Track B target sectors — UK SIC 2007
+SECTOR_SIC_MAP = {
+    "wealth":       ["64205", "64301", "64304", "66301"],   # holding cos, investment trusts, VC, fund mgmt
+    "family_office":["64205", "64304"],
+    "real_estate":  ["68209", "68310", "68320"],            # letting, agencies, fee-managed property
+    "legal":        ["69101", "69102", "69109"],            # barristers, solicitors, other legal
+    "accounting":   ["69201", "69202"],
+    "consulting":   ["70221", "70229"],
+    "logistics":    ["52290", "49410"],
+    "recruitment":  ["78109"],
+}
+
+
 def get_company_profile(company_number: str) -> dict:
     """Get full company profile: accounts, status, accounts date."""
     key = os.environ.get("UK_CH_API_KEY", "")

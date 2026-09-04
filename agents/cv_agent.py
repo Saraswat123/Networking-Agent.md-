@@ -14,7 +14,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
-import claude_cli as anthropic
+import anthropic
 
 PROFILE_PATH = Path(__file__).parent / "profile.json"
 OUTPUT_DIR = Path(__file__).parent / "output" / "cvs"
@@ -133,76 +133,193 @@ def generate_cv(job_description: str, company_name: str, role_title: str,
 
     outreach_angles = profile.get("outreach_angles", {}).get(angle_key, {})
 
-    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    # Writing/publications from profile
+    pubs = profile.get("publications", [])
+    writing_section = ""
+    for pub in pubs:
+        title = pub.get("title", "")
+        url = pub.get("url", "")
+        platform = pub.get("platform", "")
+        if url:
+            writing_section += f"- [{title}]({url}) — {platform}\n"
+        else:
+            writing_section += f"- {title} — {platform}\n"
 
-    prompt = f"""You are an expert CV writer for technical engineering roles.
+    # Achievements from profile
+    ach_list = profile.get("achievements", [])
+    achievements_md = ""
+    for a in ach_list:
+        line = f"- {a.get('title','')} — {a.get('result','')}"
+        if a.get("context"):
+            line += f" · {a['context']}"
+        achievements_md += line + "\n"
+    # Add patent (hardcoded, not in profile yet)
+    achievements_md += "- Patent Filed — ML-based marine pollution detection (OCF Ocean Tech)\n"
 
-CANDIDATE NAME: {profile['name']}
-EMAIL: {profile['email']}
-LINKEDIN: {profile['linkedin']}
-GITHUB: {profile['github']}
-LOCATION: {profile['location']}
+    BASE_CV_LAYOUT = f"""# SARASWAT DAS
 
-SELECTED CV ANGLE: {angle_key}
-TITLE: {angle['title']}
-POSITIONING SUMMARY: {angle['summary']}
-WEDGE: {angle['positioning']['wedge']}
+**[ROLE TITLE — match exact wording from JD]**
 
-SKILLS (in priority order for this role type):
-{json.dumps(angle['skills_priority'], indent=2)}
+saraswatdas94@gmail.com · [GitHub](https://github.com/Saraswat123) · [LinkedIn](https://linkedin.com/in/saraswatdas) · [X / @SaraswatDas13](https://x.com/SaraswatDas13) · [saraswat.vercel.app](https://saraswat.vercel.app)
 
-EXPERIENCE BULLETS (for this angle):
-{json.dumps(angle['experience_bullets'], indent=2)}
+---
 
-SHARED COMPANY EXPERIENCE:
-{json.dumps(shared_exp, indent=2)}
+## SUMMARY
 
-RELEVANT PROJECTS:
-{json.dumps(projects_for_angle, indent=2)}
+[2 sentences. Start with what you build, not who you are. Use exact terms from JD. Include one production number. No "passionate", no "team player", no "eager to".]
 
-OPENING LINE OPTIONS:
-{json.dumps(opening_lines, indent=2)}
-RECOMMENDED OPENING: {opening}
+---
 
-OUTREACH POSITIONING ANGLES:
-{json.dumps(outreach_angles, indent=2)}
+## TECHNICAL SKILLS
 
-JD ANALYSIS (auto-detected):
+| Area | Technologies |
+|------|-------------|
+[2–4 rows. JD must-haves in FIRST row. Strip skills not relevant to this JD. Use exact tool names from JD where applicable.]
+
+---
+
+## PROJECTS
+
+### [Most JD-Relevant Project Name] · [github.com/Saraswat123/repo-name](https://github.com/Saraswat123/repo-name)
+*[Stack — exact tech names, comma separated]*
+
+- [What problem it solves + specific technical approach — 1 sentence]
+- [Core implementation detail that proves engineering depth — 1 sentence]
+- [Outcome, scale, or signal — e.g. "deployed in production", "500+ teams", "one of first public X implementations"]
+
+### [Second Most Relevant Project] · [github.com/Saraswat123/repo-name](https://github.com/Saraswat123/repo-name)
+*[Stack]*
+
+- [Problem + approach]
+- [Technical depth]
+- [Outcome/signal]
+
+[Add 1–2 more projects if JD-relevant. Remove any project not relevant to this role. Always include GitHub link.]
+
+---
+
+## EXPERIENCE
+
+### R&D Lead — Founders Office · AITS Group · Jun 2025 – Present
+*15 locations · 50+ staff · Full-time*
+
+- [Rewrite using JD language. Include the number: 80% reduction, 50+ staff, 30 tables, 15 APIs, 11 parameters. Lead with outcome not task.]
+- [Second most relevant bullet — e.g. LLM pipeline, Claude Vision, PostgreSQL warehouse depending on JD]
+- [Third bullet if space — Power BI, SMTP dispatch, or other relevant infrastructure]
+
+### System Architect · Coddle Technologies Pvt. Ltd. · Nov 2024 – Apr 2025
+- [1 bullet. Keep if it adds signal. Drop if it doesn't.]
+
+---
+
+## WRITING & PUBLICATIONS
+
+{writing_section.strip()}
+
+---
+
+## ACHIEVEMENTS
+
+{achievements_md.strip()}
+
+---
+
+## EDUCATION
+
+**B.Tech — Computer Engineering**
+Odisha University of Technology and Research (OUTR)"""
+
+    prompt = f"""You are rewriting Saraswat Das's CV for a specific job application. Output pure Markdown only — no commentary, no preamble, no code fences.
+
+STRUCTURE: Follow this template EXACTLY. Fill in all [bracketed placeholders]. Keep all section headers, dividers, and links:
+
+{BASE_CV_LAYOUT}
+
+─────────────────────────────────────────────────────
+RULES — READ CAREFULLY:
+
+1. ROLE TITLE: Derive from JD title exactly. Not "AI Engineer" if JD says "Founding Engineer, Inference Infrastructure".
+
+2. SUMMARY: 2 sentences max.
+   - Sentence 1: what you build (systems, not feelings). Must include one production number.
+   - Sentence 2: what you're looking to do, referencing the specific domain from JD.
+   - BANNED PHRASES: passionate, excited, eager, team player, fast learner, love, enjoy, motivated
+
+3. SKILLS TABLE: 2-4 rows only. First row = JD must-haves. Use exact tool names from JD. Remove skills irrelevant to this role entirely.
+
+4. PROJECTS: 2-4 projects. Each project MUST have:
+   - H3 header with project name + clickable GitHub link
+   - Italic stack line
+   - 3 bullets: (a) problem+approach, (b) technical depth, (c) outcome/scale/signal
+   - Pick projects most relevant to JD. For AI/LLM JDs: Networking Agent + Student Assessment Portal.
+     For protocol/blockchain JDs: Axiom Engine + DVT-FOCIL + FOCIL + p2pflow.
+     For data engineering JDs: Student Assessment Portal + Networking Agent.
+   - DO NOT use a table for projects. Always H3 subsections.
+
+5. EXPERIENCE bullets: rewrite using exact vocabulary from JD. Keep all numbers. Cut anything off-topic for this role.
+
+6. WRITING section: Keep exactly as provided — do not modify the links.
+
+7. ACHIEVEMENTS: Keep exactly as provided.
+
+8. LENGTH: Aim for 1.5-2 pages when printed at 8.5pt font. Dense, no padding, no extra blank lines between bullets.
+
+─────────────────────────────────────────────────────
+INPUT DATA:
+
+ANGLE: {angle_key}
+TARGET ROLE: {role_title} @ {company_name}
+
+JD ANALYSIS:
 {json.dumps(jd_analysis, indent=2)}
 
-TARGET COMPANY: {company_name}
-TARGET ROLE: {role_title}
+EXPERIENCE BULLETS (use these as raw material, rewrite for this JD):
+{json.dumps(angle.get('experience_bullets', []), indent=2)}
 
-FULL JOB DESCRIPTION:
-{job_description}
+AVAILABLE PROJECTS (pick 2-4 most relevant):
+{json.dumps(projects_for_angle, indent=2)}
 
-TASK — Generate a tailored CV in Markdown:
+SKILLS PRIORITY FOR THIS ANGLE:
+{json.dumps(angle.get('skills_priority', []), indent=2)}
 
-1. Header: name, email, github, linkedin, location on same line or two
-2. Opening: 2-sentence technical summary — use the RECOMMENDED OPENING as starting point,
-   adapt it to reference something specific in this JD. NO soft language ("passionate about",
-   "team player"). Sound like an engineer writing for engineers.
-3. Skills: list from skills_priority, reorder to put what JD must-haves first
-4. Experience: use experience_bullets + shared_experience, rewrite with JD language.
-   Numbers everywhere possible. No vague verbs like "worked on" or "helped with".
-5. Projects: most JD-relevant first. Include tech stack + one concrete metric or signal.
-6. Education: include degree/institution/year from profile
-7. Fit summary: one line, no filler — pure signal on why this exact candidate for this exact role.
-
-Keep it tight — 1 page equivalent. Every line earns its place or it's cut.
-Output: pure Markdown only, no commentary before or after."""
+FULL JD:
+{job_description[:2500]}"""
 
     full_response = ""
     print(f"\n  [Generating CV — angle: {angle_key}]\n")
-    with client.messages.stream(
-        model="claude-opus-4-8",
-        max_tokens=3000,
-        thinking={"type": "adaptive"},
-        messages=[{"role": "user", "content": prompt}],
-    ) as stream:
-        for text in stream.text_stream:
-            print(text, end="", flush=True)
-            full_response += text
+
+    import subprocess as _sp
+    env_clean = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
+    result = _sp.run(
+        ["claude", "-p", prompt],
+        capture_output=True, text=True, timeout=300, env=env_clean,
+    )
+    if result.returncode == 0:
+        full_response = result.stdout.strip()
+        # Strip markdown code fences if Claude wraps output
+        if full_response.startswith("```"):
+            lines = full_response.split("\n")
+            lines = lines[1:]  # drop opening ```markdown or ```
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            full_response = "\n".join(lines).strip()
+        print(full_response)
+    else:
+        # Fallback: try direct API if claude CLI fails
+        try:
+            client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
+            with client.messages.stream(
+                model="claude-opus-4-8",
+                max_tokens=3000,
+                thinking={"type": "adaptive"},
+                messages=[{"role": "user", "content": prompt}],
+            ) as stream:
+                for text in stream.text_stream:
+                    print(text, end="", flush=True)
+                    full_response += text
+        except Exception as e:
+            print(f"  [cv_agent] both claude CLI and API failed: {e}")
+            full_response = f"# CV generation failed\nError: {result.stderr}"
 
     print()
 
@@ -217,13 +334,13 @@ Output: pure Markdown only, no commentary before or after."""
 
 
 def analyze_jd(job_description: str) -> dict:
-    """Quick JD parse — returns structured signal dict."""
-    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    """Quick JD parse — returns structured signal dict via claude -p subprocess."""
+    import subprocess as _sp
 
     prompt = f"""Parse this job description and return ONLY valid JSON (no markdown, no explanation):
 
 JD:
-{job_description}
+{job_description[:3000]}
 
 Return:
 {{
@@ -237,13 +354,26 @@ Return:
   "company_type": "rust_company|ai_company|infra_company|data_company|fullstack_company|protocol_company|other"
 }}"""
 
-    response = client.messages.create(
-        model="claude-opus-4-8",
-        max_tokens=1024,
-        messages=[{"role": "user", "content": prompt}],
+    env_clean = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
+    result = _sp.run(
+        ["claude", "-p", prompt],
+        capture_output=True, text=True, timeout=60, env=env_clean,
     )
+    if result.returncode == 0:
+        text = result.stdout.strip()
+    else:
+        # Fallback to API if CLI fails
+        try:
+            client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
+            resp = client.messages.create(
+                model="claude-opus-4-8",
+                max_tokens=1024,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = resp.content[0].text.strip()
+        except Exception:
+            return {"role_type": "other", "seniority": "mid", "must_have": [], "stack": []}
 
-    text = response.content[0].text.strip()
     if text.startswith("```"):
         text = text.split("```")[1]
         if text.startswith("json"):

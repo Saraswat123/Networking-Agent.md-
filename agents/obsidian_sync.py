@@ -143,6 +143,8 @@ status: new
 - **Decision maker signal:** {ai_hunger.get("decision_maker_signal", "")}
 
 ## Proposed Solution
+**Category:** {proposal.get("solution_category", "?")}
+
 ### {proposal.get("solution_title", "AI Automation Package")}
 
 {proposal.get("solution_description", "")}
@@ -160,10 +162,19 @@ status: new
 - **Channel:** {proposal.get("outreach_channel", "Email + LinkedIn")}
 - **Decision maker:** {proposal.get("target_contact_role", "CEO / Operations Director")}
 - **Hook:** {proposal.get("outreach_hook", "")}
+- **Company-specific hook:** {proposal.get("company_specific_hook", "")}
+- **Track record proof used:** {proposal.get("track_record_proof", "")}
 - **Subject line:** {proposal.get("email_subject", "")}
 
 ## Email Draft
 {proposal.get("email_draft", "_To be generated via outreach agent_")}
+
+## Follow-up Sequence
+**Day 3 (if no reply):**
+{proposal.get("follow_up_1", "_none generated_")}
+
+**Day 7 (if no reply — breakup style):**
+{proposal.get("follow_up_2", "_none generated_")}
 
 ## Background Research
 | Field | Value |
@@ -188,8 +199,8 @@ status: new
 - [ ] Background research complete
 - [ ] Email drafted (use Email Draft above)
 - [ ] Outreach sent
-- [ ] Follow-up 1 (day 7)
-- [ ] Follow-up 2 (day 14)
+- [ ] Follow-up 1 sent (day 3)
+- [ ] Follow-up 2 sent (day 7)
 - [ ] Proposal document sent
 - [ ] Contract signed
 """

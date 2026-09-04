@@ -3,6 +3,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
 const HN_ALGOLIA: &str = "https://hn.algolia.com/api/v1/search";
+const HN_ALGOLIA_DATE: &str = "https://hn.algolia.com/api/v1/search_by_date";
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HiringPost {
@@ -37,7 +38,7 @@ struct AlgoliaHit {
 /// Find the most recent "Ask HN: Who is Hiring?" post ID
 async fn get_latest_hiring_story_id(client: &Client) -> Result<u64> {
     let resp: AlgoliaResp = client
-        .get(HN_ALGOLIA)
+        .get(HN_ALGOLIA_DATE)
         .query(&[
             ("query", "Ask HN: Who is Hiring?"),
             ("tags", "story,ask_hn"),

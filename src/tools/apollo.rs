@@ -129,6 +129,7 @@ pub async fn search_people(
         .post(format!("{}/mixed_people/search", APOLLO_BASE))
         .header("Content-Type", "application/json")
         .header("User-Agent", "networking-agent/0.1")
+        .header("x-api-key", api_key)   // current Apollo auth; body api_key kept for v1 compat
         .json(&body)
         .send()
         .await?;
@@ -227,6 +228,7 @@ pub async fn search_organizations(
         .post(format!("{}/mixed_companies/search", APOLLO_BASE))
         .header("Content-Type", "application/json")
         .header("User-Agent", "networking-agent/0.1")
+        .header("x-api-key", api_key)
         .json(&body)
         .send()
         .await?;

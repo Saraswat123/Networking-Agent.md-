@@ -138,9 +138,9 @@ def is_target_region(prospect: dict) -> bool:
 
 def detect_sector(prospect: dict) -> str:
     text = " ".join([
-        prospect.get("company", ""),
-        prospect.get("notes", ""),
-        prospect.get("role", ""),
+        prospect.get("company") or "",
+        prospect.get("notes") or "",
+        prospect.get("role") or "",
     ]).lower()
     for sector in HIGH_VALUE_SECTORS:
         if sector in text:
@@ -244,6 +244,39 @@ Return ONLY valid JSON:
     return _parse_json(resp.content[0].text, "ai_hunger")
 
 
+SOLUTION_CATEGORIES = """
+- AI Agent Infrastructure (scaling): multi-agent orchestration, MCP servers connecting
+  AI to internal tools/DBs, agent monitoring/observability — for companies that already
+  have some automation and need it to scale reliably
+- Business Automation: workflow automation replacing manual Excel/email processes,
+  CRM/ERP integration, document/report generation pipelines — default for most
+  non-technical professional-services companies
+- Growth Technology: lead scoring, client-comms automation, dashboards/KPI tracking
+  for revenue visibility — for companies focused on scaling client acquisition
+- Blockchain / AI Infra Development: on-chain data pipelines, smart-contract-adjacent
+  tooling, AI agents for crypto/web3 ops — only for companies in crypto/fintech/web3 sectors
+"""
+
+OUR_TRACK_RECORD = """
+- Built a PostgreSQL data warehouse (30+ tables) unifying HRMS, KPI, and core business data
+  across 15 physical locations — replaced 15 separate spreadsheets, eliminated 85% of manual
+  branch reporting overhead
+- Built a multi-model LLM automation pipeline (local Ollama + cloud APIs + vector DB) that
+  turns raw staff/lead data into call scripts, email sequences, and performance summaries —
+  cut manual communication prep by 80% across 50+ staff
+- Built real-time KPI dashboards (Power BI + custom DB, RAG alerting) giving leadership daily
+  visibility at 95% data accuracy across a 15-location, 50+ staff organization
+- Wired 15+ systems together (CRM, accounting, comms, LLM providers) with zero manual handoffs
+- Net measurable result: 70-80% workforce efficiency gain vs a 12-month-prior zero baseline
+- Process, not just output: every one of those systems started by sitting inside the
+  organization's actual workflow first — reading their existing spreadsheets, sitting with
+  the staff doing the manual work, understanding their specific history and constraints —
+  THEN building the custom system around what they actually do, not a generic template.
+  This is the same process we'd run for this company: a short discovery pass on how they
+  work today before proposing anything.
+"""
+
+
 async def agent_proposal_generator(client, company: str, prospect: dict,
                                     classifier: dict, ai_hunger: dict) -> dict:
     """Agent 3: Generate a specific AI automation proposal for this company."""
@@ -252,6 +285,10 @@ async def agent_proposal_generator(client, company: str, prospect: dict,
     manual = ai_hunger.get("manual_processes", [])
     country = classifier.get("country", "")
     size = classifier.get("company_size", "")
+    # notes carries website:/sector:/country:/incorporated:/ch: tokens from sourcing,
+    # plus the [bg: ... hook:...] block background_agent injects when available —
+    # this is the only channel for "something specific about THEIR org" to reach Agent 3.
+    background_notes = prospect.get("notes", "")[:500]
 
     prompt = f"""You are a technical consultant pitching AI automation to a non-technical company.
 
@@ -261,6 +298,10 @@ COUNTRY: {country}
 SIZE: {size}
 PAIN POINTS: {json.dumps(pain_points)}
 MANUAL PROCESSES: {json.dumps(manual)}
+COMPANY BACKGROUND / NOTES (incorporation date, registry links, prior research hook if any): {background_notes}
+
+OUR SERVICE CATEGORIES (pick the ONE that fits this company best, or blend two if relevant):
+{SOLUTION_CATEGORIES}
 
 OUR CAPABILITIES:
 - Rust backend systems (fast, reliable, memory-safe)
@@ -270,12 +311,48 @@ OUR CAPABILITIES:
 - Simple dashboards and reporting systems
 - No-code/low-code interfaces for non-technical users
 
+OUR TRACK RECORD (real numbers — use 1-2 of these in the email/hook so the prospect can
+relate our experience to their own scale, e.g. "we did X for a 50-person org, here's what
+that looks like for a team your size"):
+{OUR_TRACK_RECORD}
+
 TASK: Design a specific AI automation package for this company.
-Make it concrete, not generic. Reference their sector specifically.
+Make it concrete, not generic. Reference their sector specifically, and if COMPANY BACKGROUND
+gives you anything concrete about THEIR organization (how long they've existed, what they do,
+any hook), use it — the email should read like we researched them, not a form letter.
 Price it realistically for a company of this size in this country.
+
+REPLY-RATE RULES (a proposal nobody replies to is worthless — optimize every email for a reply,
+not for sounding impressive):
+- email_draft: 50-80 words max. Shorter outperforms longer for cold first-touch replies.
+- NEVER open with a greeting line ("Dear X", "Hi X", "Hello") — known name or not. Start the
+  first sentence directly on their problem. No scene-setting, no "Hope this finds you well",
+  no story/wind-up sentence before getting to the point.
+- Body must do two things explicitly, back to back, not just tease them: (1) name the actual
+  manual process/pain they have right now, in concrete terms, (2) name the actual thing we'd
+  build to fix it, in concrete terms. Not a vague hook with a "want to see more?" ask hiding
+  what the email is about — say the problem, say the solution, in plain words, in the same email.
+- ONE ask only, and make it the lowest-friction ask possible — NOT "let's schedule a 20-min call."
+  Prefer a yes/no question they can answer in one line, e.g. "Worth a 2-min look?" or
+  "Want me to send the breakdown?" — something a busy person can reply to from their phone
+  in 5 seconds. A specific small ask beats an open-ended one. This ask comes AFTER the
+  problem+solution statement, not instead of it.
+- Mention our track record in one short clause, not a paragraph.
+- No attachments, no long pitch, no pricing in the first email — pricing kills cold-email replies.
+- follow_up_1 (send ~day 3 if no reply): 2-3 sentences, adds ONE new specific detail
+  (a concrete example of what the deliverable would look like for them), same low-friction ask.
+- follow_up_2 (send ~day 7 if no reply): 1-2 sentences, "should I close this out" / breakup-style
+  nudge — this style reliably gets the most replies of the whole sequence because it removes
+  pressure. Do not repeat the pitch.
+- NEVER write a placeholder token like "[Name]", "[Company]", "[First Name]" etc. into
+  email_draft, follow_up_1, or follow_up_2 — we have no contact name for cold outreach at this
+  stage, so there is nothing to fill in later and a literal bracket sent to a real inbox reads
+  as a broken mail-merge. Open directly on the problem (e.g. "Quarterly reports still built by
+  hand from each custodian — " not "Hi [Name],").
 
 Return ONLY valid JSON:
 {{
+  "solution_category": "AI Agent Infrastructure | Business Automation | Growth Technology | Blockchain/AI Infra Development",
   "solution_title": "short catchy name e.g. 'AI Operations Suite for Family Offices'",
   "solution_description": "2-3 sentences what we build and why it matters to them",
   "deliverables": ["list of 4-6 specific things we deliver"],
@@ -285,9 +362,13 @@ Return ONLY valid JSON:
   "pricing_model": "project | retainer | hybrid",
   "outreach_channel": "email | linkedin | referral",
   "target_contact_role": "who to contact e.g. 'CEO or COO'",
-  "outreach_hook": "one punchy sentence to open the email — not generic, references their specific pain",
-  "email_subject": "email subject line under 8 words",
-  "email_draft": "50-80 word cold email draft — lead with their pain, show we understand their world, ask for 20 min call"
+  "company_specific_hook": "one sentence referencing something concrete about THEIR org from COMPANY BACKGROUND (incorporation age, what they do, etc.) — empty string if nothing concrete was available",
+  "track_record_proof": "which 1-2 numbers from OUR TRACK RECORD you used and why they're relatable to this company's scale",
+  "outreach_hook": "one punchy sentence to open the email — not generic, references their specific pain AND ideally the company_specific_hook",
+  "email_subject": "email subject line under 8 words, no pitch, reads like a real person wrote it",
+  "email_draft": "50-80 word cold email — see REPLY-RATE RULES. Single low-friction yes/no ask, no pricing, no call request.",
+  "follow_up_1": "day-3 follow-up per REPLY-RATE RULES — 2-3 sentences, one new specific detail",
+  "follow_up_2": "day-7 breakup-style follow-up per REPLY-RATE RULES — 1-2 sentences"
 }}"""
 
     resp = await client.messages.create(

@@ -162,6 +162,133 @@ Return ONLY valid JSON (no markdown fences):
     return result
 
 
+def generate_track_b_outreach(
+    company_name: str,
+    sector: str,
+    location: str,
+    contact_name: str,
+    contact_role: str,
+    contact_email: str,
+    pain_points: list,
+    solution_title: str,
+    solution_description: str,
+    hook: str,
+    estimated_value: str,
+    deliverables: list,
+    hunger_score: int,
+) -> dict:
+    """
+    Generate Track B (AI proposal) outreach: cold email + LinkedIn + 2 follow-ups.
+    Positions Saraswat as an AI automation builder/consultant, not a job seeker.
+    """
+    profile = load_profile()
+    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
+
+    # Use data_engineering angle proof points — most relevant for Track B
+    de = profile["cv_profiles"]["data_engineering"]
+    bullets = de["experience_bullets"][:3]
+
+    deliverables_str = "\n".join(f"- {d}" for d in deliverables[:5])
+    pain_str = "\n".join(f"- {p}" for p in pain_points[:4])
+
+    prompt = f"""You are an expert B2B cold outreach writer. Write hyper-personalized outreach from an AI builder to a non-technical company decision maker.
+
+SENDER: Saraswat Das — AI & Data Engineer who builds automation systems for non-technical orgs.
+PROOF POINTS (real, verified):
+- Built multi-model LLM pipeline (Ollama + cloud APIs + Vector DB): auto-generates call scripts, emails, performance summaries — 80% reduction in manual comms prep across 50+ staff
+- Designed centralized PostgreSQL data warehouse replacing 15 disconnected spreadsheets across 15 locations — 95% data accuracy, 85% overhead reduction
+- Shipped OCR + handwriting recognition pipeline: handwritten documents → structured data extraction → dashboard in minutes
+- Built production Rust MCP server + autonomous AI agent pipeline — GitHub: github.com/Saraswat123
+Contact: saraswatdas94@gmail.com | Portfolio: saraswat.in
+
+TARGET COMPANY:
+Company: {company_name}
+Sector: {sector}
+Location: {location}
+Contact: {contact_name} ({contact_role})
+AI Hunger Score: {hunger_score}/10
+
+THEIR PAIN POINTS:
+{pain_str}
+
+PROPOSED SOLUTION: {solution_title}
+{solution_description}
+
+KEY DELIVERABLES:
+{deliverables_str}
+
+ESTIMATED VALUE: {estimated_value}
+
+HOOK (use this or improve it):
+"{hook}"
+
+RULES — non-negotiable:
+- Email: 100-130 words MAX. Shorter = stronger. No fluff.
+- Subject: under 8 words. Direct, specific to their pain. Not a sales pitch title.
+- Never start with "I" or "My name is". Start with their pain point or a number.
+- No: "hope this finds you well", "I'm reaching out", "revolutionize", "game-changing", "seamlessly".
+- Yes: one specific pain observation (from their sector) → one concrete proof point from sender → one clear ask (20-min call / demo).
+- One sentence under 6 words somewhere — creates rhythm, signals confidence.
+- LinkedIn note: 40-55 words. End with specific question about their current workflow.
+- Follow-up 1 (day 5): 50 words. Add NEW info — a specific benchmark, metric, or workflow angle not in email 1.
+- Follow-up 2 (day 12): 25-30 words. Soft close — acknowledge busy, leave door open. No groveling.
+- Tone: peer-to-peer, technical credibility without jargon, confident not pushy.
+
+Return ONLY valid JSON (no markdown fences):
+{{
+  "subject": "email subject line",
+  "email": "full plain text email body",
+  "linkedin_message": "short LinkedIn message",
+  "follow_up_1": "day-5 follow-up email",
+  "follow_up_2": "day-12 follow-up email"
+}}"""
+
+    response = client.messages.create(
+        model="claude-opus-4-8",
+        max_tokens=2000,
+        thinking={"type": "adaptive"},
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    text_block = next((b for b in response.content if b.type == "text"), None)
+    if not text_block:
+        raise ValueError("No text response from Claude")
+
+    text = text_block.text.strip()
+    if text.startswith("```"):
+        text = text.split("```")[1]
+        if text.startswith("json"):
+            text = text[4:]
+        text = text.rsplit("```", 1)[0]
+
+    # Extract first valid JSON object (handles trailing text after closing brace)
+    try:
+        result, _ = json.JSONDecoder().raw_decode(text.strip())
+    except json.JSONDecodeError:
+        # Find first { ... } block
+        start = text.find("{")
+        end = text.rfind("}") + 1
+        result = json.loads(text[start:end])
+
+    result.update({
+        "to": contact_email,
+        "contact": contact_name,
+        "contact_role": contact_role,
+        "company": company_name,
+        "sector": sector,
+        "track": "B",
+        "hook": hook,
+        "estimated_value": estimated_value,
+    })
+
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    safe = "".join(c for c in f"trackb_{company_name}" if c.isalnum() or c in "-_").lower()
+    out_path = OUTPUT_DIR / f"outreach_{safe}.json"
+    out_path.write_text(json.dumps(result, indent=2))
+    print(f"  [saved → {out_path.name}]")
+    return result
+
+
 def print_outreach(result: dict) -> None:
     sep = "─" * 60
     print(f"\n{sep}")

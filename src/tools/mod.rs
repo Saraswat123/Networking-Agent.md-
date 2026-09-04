@@ -1,4 +1,5 @@
 pub mod apollo;
+pub mod fit;
 pub mod clearbit;
 pub mod discovery;
 pub mod proposals;

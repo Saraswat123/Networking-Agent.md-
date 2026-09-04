@@ -35,10 +35,11 @@ SESSION_PATH = Path(__file__).parent.parent / "linkedin_session.json"
 SENT_LOG = OUTPUT_DIR / "sent.jsonl"
 
 # Hard rate limits — DO NOT exceed or risk ban
-MAX_CONNECTIONS_PER_DAY = 20
+MAX_CONNECTIONS_PER_DAY = 35   # 20 morning + 15 evening
+MAX_FOLLOWS_PER_DAY = 150      # follows have no hard LinkedIn cap but keep safe
 MAX_MESSAGES_PER_DAY = 5
-MIN_DELAY_BETWEEN_ACTIONS = 8   # seconds
-MAX_DELAY_BETWEEN_ACTIONS = 20  # seconds
+MIN_DELAY_BETWEEN_ACTIONS = 6   # seconds
+MAX_DELAY_BETWEEN_ACTIONS = 15  # seconds
 
 
 def _check_daily_limit(action: str) -> bool:
@@ -229,34 +230,145 @@ async def send_connection_request(profile_url: str, note: str = "", dry_run: boo
     page, browser, pw = await _get_browser_page()
     try:
         await page.goto(profile_url, wait_until="domcontentloaded", timeout=30000)
-        await page.wait_for_timeout(2500)
-        _random_delay()
+        await page.wait_for_timeout(3000)
 
-        # Click Connect button
-        connect_btn = page.locator("button:has-text('Connect')")
-        if await connect_btn.count() == 0:
+        # Dismiss any overlays (cookie banners, modals)
+        for dismiss_sel in ["button:has-text('Accept')", "button:has-text('Dismiss')", "button[aria-label='Dismiss']"]:
+            try:
+                btn = page.locator(dismiss_sel).first
+                if await btn.count() > 0:
+                    await btn.click(timeout=2000)
+                    await page.wait_for_timeout(500)
+            except Exception:
+                pass
+
+        async def _js_click(locator):
+            """Click via JS to bypass pointer-event interception."""
+            el = await locator.element_handle(timeout=3000)
+            if el:
+                await page.evaluate("el => el.click()", el)
+                return True
+            return False
+
+        # Strategy 1: span with text "Connect" inside profile actions
+        # LinkedIn renders: <button><span>Connect</span></button>
+        # button:has-text misses it — target span directly, click bubbles to button
+        found_via = None
+        connect_span = None
+
+        # Profile actions area (top of page, before sidebar)
+        # Try a few selectors in order of specificity
+        selectors = [
+            # Exact span text — most reliable
+            "span:text-is('Connect')",
+            # Button with aria-label containing Invite/Connect
+            "button[aria-label*='Invite'], button[aria-label*='connect']",
+            # Fallback: any element containing only "Connect"
+            ":text-is('Connect')",
+        ]
+        for sel in selectors:
+            loc = page.locator(sel).first
+            if await loc.count() > 0:
+                connect_span = loc
+                found_via = f"span ({sel})"
+                break
+
+        if not connect_span:
+            # Strategy 2: "More" dropdown — sometimes Connect is hidden there
+            more_btn = page.locator("button:has-text('More')").first
+            if await more_btn.count() > 0:
+                try:
+                    await _js_click(more_btn)
+                except Exception:
+                    await more_btn.click(force=True)
+                await page.wait_for_timeout(1200)
+                dropdown_connect = page.locator("span:text-is('Connect')").first
+                if await dropdown_connect.count() > 0:
+                    connect_span = dropdown_connect
+                    found_via = "more_dropdown"
+
+        if not connect_span:
+            await page.screenshot(path="/tmp/li_no_connect.png")
             return {"status": "no_connect_button", "profile_url": profile_url}
 
-        await connect_btn.first.click()
-        _random_delay()
+        print(f"    [connect] found via {found_via}")
+        try:
+            await _js_click(connect_span)
+        except Exception:
+            await connect_span.click(force=True)
+        await page.wait_for_timeout(1500)
 
         if note:
-            # Click "Add a note"
-            add_note = page.locator("button:has-text('Add a note')")
-            if await add_note.count() > 0:
-                await add_note.click()
-                await page.fill("textarea[name='message']", note[:300])
-                _random_delay()
+            try:
+                add_note = page.locator("span:text-is('Add a note'), button[aria-label*='note']").first
+                if await add_note.count() > 0:
+                    try:
+                        await _js_click(add_note)
+                    except Exception:
+                        await add_note.click(force=True)
+                    await page.wait_for_timeout(800)
+                    textarea = page.locator("textarea[name='message'], textarea").first
+                    await textarea.fill(note[:300], timeout=5000)
+                    await page.wait_for_timeout(500)
+            except Exception:
+                # Note UI didn't open as expected (LinkedIn sometimes restricts notes for
+                # out-of-network profiles) — fall through and send without a note rather
+                # than losing the connection request entirely.
+                print(f"    [connect] note step failed, sending without note")
 
         # Send
-        send_btn = page.locator("button:has-text('Send')")
+        send_btn = page.locator(
+            "span:text-is('Send without a note'), span:text-is('Send invitation'), "
+            "span:text-is('Send'), span:text-is('Done')"
+        ).first
         if await send_btn.count() > 0:
-            await send_btn.click()
+            try:
+                await _js_click(send_btn)
+            except Exception:
+                await send_btn.click(force=True)
+            await page.wait_for_timeout(1000)
 
         _log_action("connect", profile_url, note)
         print(f"  [linkedin] Connected → {profile_url}")
         return {"status": "sent", "action": "connect", "profile_url": profile_url}
 
+    except Exception as e:
+        return {"status": "error", "error": str(e)[:200], "profile_url": profile_url}
+    finally:
+        await browser.close()
+        await pw.stop()
+
+
+async def follow_profile(profile_url: str, dry_run: bool = False) -> dict:
+    """
+    Follow a LinkedIn profile (not a connection request).
+    No limit per day — instant, no approval needed.
+    Builds your follower count + visibility in their feed.
+    """
+    if dry_run:
+        print(f"\n[DRY RUN] Follow: {profile_url}")
+        return {"status": "dry_run", "profile_url": profile_url}
+
+    page, browser, pw = await _get_browser_page()
+    try:
+        await page.goto(profile_url, wait_until="domcontentloaded", timeout=30000)
+        await page.wait_for_timeout(2000)
+
+        # LinkedIn follow button — various selectors
+        follow_btn = page.locator("button:has-text('Follow')").first
+        if await follow_btn.count() == 0:
+            # Try alternate — "More" menu follow option
+            return {"status": "no_follow_button", "profile_url": profile_url}
+
+        await follow_btn.click()
+        await page.wait_for_timeout(1000)
+
+        _log_action("follow", profile_url)
+        print(f"  [linkedin] Followed → {profile_url}")
+        return {"status": "followed", "action": "follow", "profile_url": profile_url}
+
+    except Exception as e:
+        return {"status": "error", "error": str(e), "profile_url": profile_url}
     finally:
         await browser.close()
         await pw.stop()
@@ -301,6 +413,364 @@ async def send_message(profile_url: str, message: str, dry_run: bool = False) ->
     finally:
         await browser.close()
         await pw.stop()
+
+
+async def batch_connect_urls(
+    url_note_pairs: list[tuple[str, str]],
+    dry_run: bool = False,
+    limit: int = 35,
+) -> dict:
+    """
+    One browser session: connect with a list of known LinkedIn profile URLs.
+    url_note_pairs: [(profile_url, note), ...]
+    Returns {"sent": n, "skipped": n}.
+    """
+    import random
+
+    if dry_run:
+        for url, note in url_note_pairs[:limit]:
+            name = url.split("/in/")[-1].split("/")[0]
+            print(f"  [DRY] Connect: {name} | {note[:60]}")
+        return {"sent": 0, "skipped": 0, "dry_run": True}
+
+    if not _check_daily_limit("connect"):
+        return {"sent": 0, "skipped": 0, "limit": True}
+
+    page, browser, pw = await _get_browser_page()
+    sent = 0
+    skipped = 0
+
+    async def _js_click(locator):
+        el = await locator.element_handle(timeout=3000)
+        if el:
+            await page.evaluate("el => el.click()", el)
+            return True
+        return False
+
+    try:
+        for url, note in url_note_pairs:
+            if sent >= limit:
+                break
+            if not _check_daily_limit("connect"):
+                break
+
+            # Normalise URL — strip query params
+            url = url.split("?")[0].rstrip("/")
+
+            try:
+                await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                await page.wait_for_timeout(2500)
+
+                connect_span = None
+                for sel in ["span:text-is('Connect')", "button[aria-label*='Invite']", ":text-is('Connect')"]:
+                    loc = page.locator(sel).first
+                    if await loc.count() > 0:
+                        connect_span = loc
+                        break
+
+                if not connect_span:
+                    more = page.locator("button:has-text('More')").first
+                    if await more.count() > 0:
+                        await _js_click(more)
+                        await page.wait_for_timeout(1200)
+                        loc = page.locator("span:text-is('Connect')").first
+                        if await loc.count() > 0:
+                            connect_span = loc
+
+                if not connect_span:
+                    skipped += 1
+                    continue
+
+                await _js_click(connect_span)
+                await page.wait_for_timeout(1500)
+
+                if note:
+                    try:
+                        add_note = page.locator(
+                            "span:text-is('Add a note'), button[aria-label*='note']"
+                        ).first
+                        if await add_note.count() > 0:
+                            await _js_click(add_note)
+                            await page.wait_for_timeout(800)
+                            textarea = page.locator("textarea[name='message'], textarea").first
+                            await textarea.fill(note[:300], timeout=5000)
+                            await page.wait_for_timeout(500)
+                    except Exception:
+                        pass
+
+                send_btn = page.locator(
+                    "span:text-is('Send without a note'), span:text-is('Send invitation'), "
+                    "span:text-is('Send'), span:text-is('Done')"
+                ).first
+                if await send_btn.count() > 0:
+                    await _js_click(send_btn)
+                    await page.wait_for_timeout(1200)
+
+                name = url.split("/in/")[-1].split("/")[0]
+                _log_action("connect", url, note)
+                print(f"  [linkedin] Connected → {name} | {note[:60]}...")
+                sent += 1
+
+                await page.wait_for_timeout(random.randint(6000, 14000))
+
+            except Exception as e:
+                skipped += 1
+                name = url.split("/in/")[-1].split("/")[0]
+                print(f"    [connect] error {name}: {e}")
+
+    finally:
+        await browser.close()
+        await pw.stop()
+
+    return {"sent": sent, "skipped": skipped}
+
+
+async def batch_search_and_connect(
+    keyword_notes: list[tuple[str, str]],
+    dry_run: bool = False,
+    limit: int = 35,
+) -> dict:
+    """
+    One browser session: search multiple keywords → connect with note.
+    Returns {"sent": n, "skipped": n}.
+    keyword_notes: list of (keyword, note) tuples.
+    """
+    import re, urllib.parse, random
+
+    if dry_run:
+        return {"sent": 0, "skipped": 0, "dry_run": True}
+
+    if not _check_daily_limit("connect"):
+        return {"sent": 0, "skipped": 0, "limit": True}
+
+    page, browser, pw = await _get_browser_page()
+    sent = 0
+    skipped = 0
+    seen_urls: set[str] = set()
+
+    async def _js_click(locator):
+        el = await locator.element_handle(timeout=3000)
+        if el:
+            await page.evaluate("el => el.click()", el)
+            return True
+        return False
+
+    try:
+        for kw, note in keyword_notes:
+            if sent >= limit:
+                break
+            if not _check_daily_limit("connect"):
+                break
+
+            query = urllib.parse.quote(kw)
+            search_url = (
+                f"https://www.linkedin.com/search/results/people/"
+                f"?keywords={query}&origin=GLOBAL_SEARCH_HEADER"
+            )
+            await page.goto(search_url, wait_until="domcontentloaded", timeout=30000)
+            await page.wait_for_timeout(3000)
+
+            # Collect profile URLs from search results
+            profile_urls: list[str] = []
+            content = await page.content()
+
+            # Debug: screenshot + URL if no profiles found on first keyword
+            if not profile_urls and kw == keyword_notes[0][0]:
+                await page.screenshot(path="/tmp/li_search_debug.png")
+                print(f"  [debug] URL after search: {page.url[:100]}")
+                print(f"  [debug] Page title: {await page.title()}")
+
+            matches = re.findall(r'href="(https://www\.linkedin\.com/in/[A-Za-z0-9_%-]+)', content)
+            for m in matches:
+                clean = m.split("?")[0].rstrip("/")
+                if clean not in seen_urls:
+                    profile_urls.append(clean)
+                    seen_urls.add(clean)
+            print(f"  [debug] {kw[:40]}: {len(profile_urls)} profiles found")
+            random.shuffle(profile_urls)
+
+            for url in profile_urls[:8]:
+                if sent >= limit:
+                    break
+                if not _check_daily_limit("connect"):
+                    break
+
+                try:
+                    await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                    await page.wait_for_timeout(2500)
+
+                    # Find Connect button
+                    connect_span = None
+                    for sel in ["span:text-is('Connect')", "button[aria-label*='Invite']", ":text-is('Connect')"]:
+                        loc = page.locator(sel).first
+                        if await loc.count() > 0:
+                            connect_span = loc
+                            print(f"    [connect] found via {sel}")
+                            break
+
+                    if not connect_span:
+                        # Try More dropdown
+                        more = page.locator("button:has-text('More')").first
+                        if await more.count() > 0:
+                            await _js_click(more)
+                            await page.wait_for_timeout(1200)
+                            loc = page.locator("span:text-is('Connect')").first
+                            if await loc.count() > 0:
+                                connect_span = loc
+
+                    if not connect_span:
+                        skipped += 1
+                        continue
+
+                    await _js_click(connect_span)
+                    await page.wait_for_timeout(1500)
+
+                    if note:
+                        try:
+                            add_note = page.locator(
+                                "span:text-is('Add a note'), button[aria-label*='note']"
+                            ).first
+                            if await add_note.count() > 0:
+                                await _js_click(add_note)
+                                await page.wait_for_timeout(800)
+                                textarea = page.locator("textarea[name='message'], textarea").first
+                                await textarea.fill(note[:300], timeout=5000)
+                                await page.wait_for_timeout(500)
+                        except Exception:
+                            pass  # send without note if UI doesn't cooperate
+
+                    send_btn = page.locator(
+                        "span:text-is('Send without a note'), span:text-is('Send invitation'), "
+                        "span:text-is('Send'), span:text-is('Done')"
+                    ).first
+                    if await send_btn.count() > 0:
+                        await _js_click(send_btn)
+                        await page.wait_for_timeout(1200)
+
+                    _log_action("connect", url, note)
+                    print(f"  [linkedin] Connected → {url}")
+                    sent += 1
+
+                    # Human-like delay between connections
+                    await page.wait_for_timeout(random.randint(6000, 14000))
+
+                except Exception as e:
+                    skipped += 1
+                    print(f"    [connect] error {url}: {e}")
+
+    finally:
+        await browser.close()
+        await pw.stop()
+
+    return {"sent": sent, "skipped": skipped}
+
+
+async def batch_follow_profiles(
+    keyword_list: list[str],
+    dry_run: bool = False,
+    limit: int = 150,
+    urls_per_keyword: int = 20,
+) -> dict:
+    """
+    One browser session: search multiple keywords → follow each profile.
+    Dramatically faster than calling follow_profile() in a loop
+    (avoids repeated browser launch + LinkedIn session load per profile).
+    Returns {"followed": n, "skipped": n}.
+    """
+    import re, urllib.parse, random
+
+    if dry_run:
+        return {"followed": 0, "skipped": 0, "dry_run": True}
+
+    page, browser, pw = await _get_browser_page()
+    followed = 0
+    skipped = 0
+    seen_urls: set[str] = set()
+
+    async def _js_click(locator):
+        el = await locator.element_handle(timeout=3000)
+        if el:
+            await page.evaluate("el => el.click()", el)
+            return True
+        return False
+
+    followed_urls: list[str] = []
+
+    try:
+        for kw in keyword_list:
+            if followed >= limit:
+                break
+
+            query = urllib.parse.quote(kw)
+            search_url = (
+                f"https://www.linkedin.com/search/results/people/"
+                f"?keywords={query}&origin=GLOBAL_SEARCH_HEADER"
+            )
+            # Catch network errors at keyword level — break with partial count
+            try:
+                await page.goto(search_url, wait_until="domcontentloaded", timeout=30000)
+                await page.wait_for_timeout(2500)
+            except Exception as e:
+                print(f"  [linkedin] Network error on search ({kw}): {e!s:.120}")
+                break  # stop keyword loop, return what we have
+
+            # Collect profile URLs
+            profile_urls: list[str] = []
+            try:
+                content = await page.content()
+                matches = re.findall(r'href="(https://www\.linkedin\.com/in/[A-Za-z0-9_%-]+)', content)
+                for m in matches:
+                    clean = m.split("?")[0].rstrip("/")
+                    if clean not in seen_urls:
+                        profile_urls.append(clean)
+                        seen_urls.add(clean)
+            except Exception:
+                continue
+
+            for url in profile_urls[:urls_per_keyword]:
+                if followed >= limit:
+                    break
+                try:
+                    await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                    await page.wait_for_timeout(2000)
+
+                    follow_btn = page.locator("button:has-text('Follow')").first
+                    if await follow_btn.count() == 0:
+                        more = page.locator("button:has-text('More')").first
+                        if await more.count() > 0:
+                            await _js_click(more)
+                            await page.wait_for_timeout(1000)
+                            follow_btn = page.locator("span:text-is('Follow')").first
+
+                    if await follow_btn.count() == 0:
+                        skipped += 1
+                        continue
+
+                    await _js_click(follow_btn)
+                    await page.wait_for_timeout(1000)
+
+                    _log_action("follow", url)
+                    print(f"  [linkedin] Followed → {url}")
+                    followed_urls.append(url)
+                    followed += 1
+
+                    await page.wait_for_timeout(random.randint(3000, 7000))
+
+                except Exception as e:
+                    err = str(e)[:80]
+                    if "ERR_INTERNET_DISCONNECTED" in err or "ERR_NETWORK" in err:
+                        print(f"  [linkedin] Network lost during follow — stopping")
+                        break
+                    skipped += 1
+
+    finally:
+        try:
+            await browser.close()
+            await pw.stop()
+        except Exception:
+            pass
+
+    return {"followed": followed, "skipped": skipped, "urls": followed_urls}
 
 
 def get_sent_stats() -> dict:

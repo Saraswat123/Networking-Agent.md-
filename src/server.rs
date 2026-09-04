@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
 use crate::compliance::ComplianceLayer;
-use crate::tools::{apollo, clearbit, crunchbase, discovery, email_finder, github, hiring, jobs, platforms, producthunt, proposals, scorer, tech_stack, yc};
+use crate::tools::{apollo, clearbit, crunchbase, discovery, email_finder, fit, github, hiring, jobs, platforms, producthunt, proposals, scorer, tech_stack, yc};
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct SearchUsersParams {
@@ -1063,6 +1063,58 @@ https://saraswat.vercel.app/"#,
         out
     }
 
+    // ── A: Role fit + compensation + direction routing ──────────────────────────
+
+    #[tool(description = "Score role/job fit and route to Direction A (proposal) or Direction B (job application). Filters: hard-skips frontend/mobile/PM/sales, flags INR/₹ salary as non-remote-budget, checks stack match (Rust/Go/Python/infra), detects remote availability. Returns fit_score 0-100, direction A|B|skip, signals list. Run this BEFORE save_prospect on any job posting.")]
+    async fn check_role_fit(
+        &self,
+        Parameters(params): Parameters<RoleFitParams>,
+    ) -> String {
+        if let Err(e) = self.compliance.rate_limiter.check("check_role_fit").await { return e; }
+        let result = fit::score_role_fit(&params.title, &params.description);
+        serde_json::to_string_pretty(&result).unwrap_or_else(|e| e.to_string())
+    }
+
+    // ── A: CONTRIBUTING.md reader ────────────────────────────────────────────────
+
+    #[tool(description = "Fetch and parse CONTRIBUTING.md (or .github/CONTRIBUTING.md) before writing any PR. Returns: full content, extracted key rules, CLA requirement, test requirement, format/lint requirement. Run this BEFORE writing any code contribution — a PR rejected for missing tests or wrong format wastes everyone's time.")]
+    async fn fetch_contributing_guide(
+        &self,
+        Parameters(params): Parameters<ContributingGuideParams>,
+    ) -> String {
+        if let Err(e) = self.compliance.rate_limiter.check("fetch_contributing_guide").await { return e; }
+        let t = self.compliance.audit.start();
+        let input = format!("{}/{}", params.owner, params.repo);
+        let result = match scorer::fetch_contributing_guide(
+            &self.http_client, &self.github_token, &params.owner, &params.repo
+        ).await {
+            Ok(guide) => serde_json::to_string_pretty(&guide).unwrap_or_else(|e| e.to_string()),
+            Err(e) => format!("Error: {}", e),
+        };
+        self.compliance.audit.log(&self.db, "fetch_contributing_guide", &input, &result, t, &[]).await;
+        result
+    }
+
+    // ── A: Issue activity / "already claimed?" check ─────────────────────────────
+
+    #[tool(description = "Check if a GitHub issue is already being worked on before you invest time writing a fix. Returns verdict: CLEAR (go ahead) | CONTESTED (active discussion, check comments) | TAKEN (assigned or linked PR exists). Run this AFTER score_repo_issues picks a target, BEFORE writing any code. Saves hours of wasted work.")]
+    async fn check_issue_activity(
+        &self,
+        Parameters(params): Parameters<IssueActivityParams>,
+    ) -> String {
+        if let Err(e) = self.compliance.rate_limiter.check("check_issue_activity").await { return e; }
+        let t = self.compliance.audit.start();
+        let input = format!("{}/{} #{}", params.owner, params.repo, params.issue_number);
+        let result = match scorer::check_issue_activity(
+            &self.http_client, &self.github_token, &params.owner, &params.repo, params.issue_number
+        ).await {
+            Ok(activity) => serde_json::to_string_pretty(&activity).unwrap_or_else(|e| e.to_string()),
+            Err(e) => format!("Error: {}", e),
+        };
+        self.compliance.audit.log(&self.db, "check_issue_activity", &input, &result, t, &[]).await;
+        result
+    }
+
     #[tool(description = "Export full pipeline as sheet-ready JSON: two arrays — 'prospects' and 'contributions' — with consistent columns. Claude then writes these to Google Sheets via google-workspace MCP. Call this before syncing to sheets. Returns column headers + row data for each table.")]
     async fn export_pipeline(&self) -> String {
         if let Err(e) = self.compliance.rate_limiter.check("export_pipeline").await { return e; }
@@ -1834,6 +1886,32 @@ pub struct WellfoundParams {
     pub remote_only: Option<bool>,
     /// Max results (default 20)
     pub limit: Option<usize>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct RoleFitParams {
+    /// Job title e.g. "Senior Backend Engineer", "Founding Engineer", "Staff SRE"
+    pub title: String,
+    /// Full job description or role summary text — paste the raw JD
+    pub description: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct ContributingGuideParams {
+    /// GitHub repo owner e.g. "tokio-rs"
+    pub owner: String,
+    /// GitHub repo name e.g. "tokio"
+    pub repo: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct IssueActivityParams {
+    /// GitHub repo owner
+    pub owner: String,
+    /// GitHub repo name
+    pub repo: String,
+    /// Issue number to check e.g. 1234
+    pub issue_number: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]

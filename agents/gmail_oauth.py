@@ -44,9 +44,16 @@ def _get_service():
         creds = Credentials.from_authorized_user_file(str(TOKEN_PATH), SCOPES)
 
     if not creds or not creds.valid:
+        needs_browser = True
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
+            try:
+                creds.refresh(Request())
+                needs_browser = False
+            except Exception:
+                # invalid_grant: refresh token revoked (Google testing-mode 7d limit)
+                # fall through to browser re-auth
+                TOKEN_PATH.unlink(missing_ok=True)
+        if needs_browser:
             if not CREDS_PATH.exists():
                 raise FileNotFoundError(
                     f"credentials.json not found at {CREDS_PATH}\n"
@@ -156,3 +163,15 @@ def check_replies(sent_log_path: Path = SENT_LOG) -> list[dict]:
             "replied": replied,
         })
     return results
+
+
+if __name__ == "__main__":
+    # Force fresh browser auth — deletes stale token first
+    if TOKEN_PATH.exists():
+        TOKEN_PATH.unlink()
+        print(f"Deleted stale token: {TOKEN_PATH}")
+    print("Opening browser for Gmail auth (saraswatdas94@gmail.com)...")
+    service = _get_service()
+    profile = service.users().getProfile(userId="me").execute()
+    print(f"Authenticated as: {profile.get('emailAddress')}")
+    print(f"Token saved to: {TOKEN_PATH}")
