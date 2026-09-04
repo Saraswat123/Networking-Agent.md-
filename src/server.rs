@@ -1634,6 +1634,208 @@ https://saraswat.vercel.app/"#,
         self.compliance.audit.log(&self.db, "draft_proposal_email", &format!("org={} to={}", params.org, params.recipient_email), &result, t, &[]).await;
         result
     }
+
+    // ── Fund Analyzer ─────────────────────────────────────────────────────────
+
+    #[tool(description = "Fetch YC companies by tag using the free yc-oss public API. Tags: 'artificial-intelligence', 'developer-tools', 'workflow-automation', 'data-engineering', 'infrastructure', 'developer-tools'. Returns founders, batch, team size, website. Better than batch search for AI/data profile matching.")]
+    async fn get_yc_by_tag(
+        &self,
+        Parameters(params): Parameters<YcByTagParams>,
+    ) -> String {
+        let limit = params.limit.unwrap_or(30);
+        match crate::tools::fund_analyzer::get_yc_by_tag(
+            &self.http_client,
+            &params.tag,
+            limit,
+            params.batch_filter.as_deref(),
+        )
+        .await
+        {
+            Ok(companies) => serde_json::to_string_pretty(&serde_json::json!({
+                "tag": params.tag,
+                "count": companies.len(),
+                "companies": companies
+            }))
+            .unwrap_or_else(|e| e.to_string()),
+            Err(e) => format!("Error: {}", e),
+        }
+    }
+
+    #[tool(description = "Search SEC EDGAR Form D filings — free, no key. Every US startup raising capital must file Form D within 15 days. Returns company name + filed date. Use query='seed' or 'Series A' for fresh funded companies. days_back=90 for last 3 months. Better than Crunchbase for days-fresh US funding signal.")]
+    async fn search_form_d(
+        &self,
+        Parameters(params): Parameters<FormDParams>,
+    ) -> String {
+        let days = params.days_back.unwrap_or(90);
+        match crate::tools::fund_analyzer::search_form_d(&self.http_client, &params.query, days).await {
+            Ok(filings) => serde_json::to_string_pretty(&serde_json::json!({
+                "query": params.query,
+                "days_back": days,
+                "count": filings.len(),
+                "filings": filings,
+                "tip": "Feed entity_name into search_apollo_people or uk_company_lookup for officer names"
+            }))
+            .unwrap_or_else(|e| e.to_string()),
+            Err(e) => format!("Error: {}", e),
+        }
+    }
+
+    #[tool(description = "Search GDELT global news for funding signals — free, no key. Covers EU-Startups, Sifted, DealStreetAsia, e27 that TechCrunch RSS misses. query examples: 'raised seed funding site:sifted.eu', '\"Series A\" startup Singapore', 'raised €2M'. Sorted newest first.")]
+    async fn search_gdelt_funding(
+        &self,
+        Parameters(params): Parameters<GdeltFundingParams>,
+    ) -> String {
+        let max = params.max_results.unwrap_or(20);
+        match crate::tools::fund_analyzer::search_gdelt_funding(&self.http_client, &params.query, max).await {
+            Ok(articles) => serde_json::to_string_pretty(&serde_json::json!({
+                "query": params.query,
+                "count": articles.len(),
+                "articles": articles
+            }))
+            .unwrap_or_else(|e| e.to_string()),
+            Err(e) => format!("Error: {}", e),
+        }
+    }
+
+    #[tool(description = "Compute fund signal score (0-100) for a prospect. ≥60 = HUNT NOW. Inputs: days since Form D or Crunchbase round, open eng role count (from search_ats_jobs), YC batch age, Product Hunt launch recency, GitHub activity, team size. Stores result in notes field if prospect_id provided.")]
+    async fn compute_fund_signal(
+        &self,
+        Parameters(params): Parameters<FundSignalParams>,
+    ) -> String {
+        let signal = crate::tools::fund_analyzer::compute_fund_signal(
+            params.form_d_days_ago,
+            params.crunchbase_days_ago,
+            params.open_eng_roles.unwrap_or(0),
+            params.yc_batches_old,
+            params.ph_days_ago,
+            params.github_active_days,
+            params.team_size,
+        );
+        serde_json::to_string_pretty(&serde_json::json!({
+            "score": signal.score,
+            "tier": signal.tier,
+            "signals": signal.signals,
+            "action": if signal.score >= 60 { "Run analyze_company_depth → route_prospect → draft_proposal_email" }
+                      else if signal.score >= 35 { "Watch — wait for more signals before emailing" }
+                      else { "Skip for now" }
+        }))
+        .unwrap_or_else(|e| e.to_string())
+    }
+
+    // ── Registry — Officer Lookup ─────────────────────────────────────────────
+
+    #[tool(description = "Look up UK company on Companies House — free key (600 req/10min). Returns officers (founders by name + DOB month). Officer names feed directly into search_apollo_people for email finding. Requires COMPANIES_HOUSE_API_KEY env var (free at developer.company-information.service.gov.uk).")]
+    async fn uk_company_lookup(
+        &self,
+        Parameters(params): Parameters<UkCompanyParams>,
+    ) -> String {
+        match crate::tools::registry::uk_company_lookup(&self.http_client, &params.company_name).await {
+            Ok(companies) => serde_json::to_string_pretty(&serde_json::json!({
+                "count": companies.len(),
+                "companies": companies,
+                "tip": "Use officer names with search_apollo_people to find emails"
+            }))
+            .unwrap_or_else(|e| e.to_string()),
+            Err(e) => format!("Error: {}", e),
+        }
+    }
+
+    #[tool(description = "Look up French company on Pappers — free key, generous limit. Returns dirigeants (officers/founders) with name + role. Covers France startups (Paris tech scene). Requires PAPPERS_API_KEY env var (free at pappers.fr/api).")]
+    async fn fr_company_lookup(
+        &self,
+        Parameters(params): Parameters<FrCompanyParams>,
+    ) -> String {
+        match crate::tools::registry::fr_company_lookup(&self.http_client, &params.company_name).await {
+            Ok(companies) => serde_json::to_string_pretty(&serde_json::json!({
+                "count": companies.len(),
+                "companies": companies
+            }))
+            .unwrap_or_else(|e| e.to_string()),
+            Err(e) => format!("Error: {}", e),
+        }
+    }
+
+    #[tool(description = "RDAP domain lookup — free, no key, unlimited. Checks Verisign RDAP for domain registration info. Sometimes exposes founder email or registrant name in public registration data. Use after Hunter/Apollo waterfall as bonus signal. domain format: 'company.com' or 'company.io'.")]
+    async fn rdap_domain(
+        &self,
+        Parameters(params): Parameters<RdapParams>,
+    ) -> String {
+        match crate::tools::registry::rdap_domain(&self.http_client, &params.domain).await {
+            Ok(info) => serde_json::to_string_pretty(&info).unwrap_or_else(|e| e.to_string()),
+            Err(e) => format!("Error: {}", e),
+        }
+    }
+
+    // ── ATS Jobs ─────────────────────────────────────────────────────────────
+
+    #[tool(description = "Fetch jobs from startup ATS boards — free, no key. Auto-detects Ashby (AI/dev-tool startups) → Greenhouse (US standard) → Lever (SF startups). board_slug is the company slug on their ATS e.g. 'linear', 'vercel', 'supabase'. Returns structured jobs with remote flag + eng role count (feeds fund_signal_score).")]
+    async fn search_ats_jobs(
+        &self,
+        Parameters(params): Parameters<AtsJobsParams>,
+    ) -> String {
+        let ats = params.ats.as_deref();
+        match crate::tools::ats_jobs::search_ats_jobs(&self.http_client, &params.board_slug, ats).await {
+            Ok(board) => {
+                let jobs: Vec<_> = if params.remote_only.unwrap_or(false) {
+                    board.jobs.into_iter().filter(|j| j.remote).collect()
+                } else {
+                    board.jobs
+                };
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "ats": board.ats,
+                    "board_slug": board.board_slug,
+                    "total_jobs": board.total_jobs,
+                    "eng_roles": board.eng_roles,
+                    "remote_roles": board.remote_roles,
+                    "jobs": jobs
+                }))
+                .unwrap_or_else(|e| e.to_string())
+            }
+            Err(e) => format!("Error: {} — try ats=ashby, ats=greenhouse, or ats=lever explicitly", e),
+        }
+    }
+
+    // ── Email Verify ─────────────────────────────────────────────────────────
+
+    #[tool(description = "Verify a single email via Hunter.io — checks MX records + SMTP deliverability. Returns deliverable bool + confidence score (0-100). Use in email waterfall step 5 to verify pattern-guessed emails before sending. Requires HUNTER_API_KEY.")]
+    async fn verify_email(
+        &self,
+        Parameters(params): Parameters<VerifyEmailParams>,
+    ) -> String {
+        match crate::tools::verify::verify_hunter(&self.http_client, &params.email).await {
+            Ok(result) => serde_json::to_string_pretty(&result).unwrap_or_else(|e| e.to_string()),
+            Err(e) => format!("Error: {}", e),
+        }
+    }
+
+    #[tool(description = "Generate common email patterns for a person and verify via Hunter waterfall. Returns first deliverable email. Inputs: first name, last name, domain. Generates: fname@, fname.lname@, f+lname@, etc. Use as last resort after Apollo → Hunter domain-search → GitHub email.")]
+    async fn find_email_by_name(
+        &self,
+        Parameters(params): Parameters<FindEmailByNameParams>,
+    ) -> String {
+        let candidates = crate::tools::verify::email_patterns(
+            &params.first_name,
+            &params.last_name,
+            &params.domain,
+        );
+        match crate::tools::verify::verify_waterfall(&self.http_client, candidates.clone()).await {
+            Ok(Some(result)) => serde_json::to_string_pretty(&serde_json::json!({
+                "found": true,
+                "email": result.email,
+                "confidence": result.confidence,
+                "deliverable": result.deliverable,
+                "candidates_tried": candidates.len()
+            }))
+            .unwrap_or_else(|e| e.to_string()),
+            Ok(None) => serde_json::to_string_pretty(&serde_json::json!({
+                "found": false,
+                "candidates_tried": candidates,
+                "tip": "Try Hunter domain-search or Apollo reveal"
+            }))
+            .unwrap_or_else(|e| e.to_string()),
+            Err(e) => format!("Error: {}", e),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -1986,6 +2188,96 @@ pub struct DraftProposalEmailParams {
     pub focus_area: Option<String>,
     /// Optional custom subject line — auto-generated if empty
     pub subject: Option<String>,
+}
+
+// ── New param structs ─────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct YcByTagParams {
+    /// Tag slug e.g. "artificial-intelligence", "developer-tools", "workflow-automation", "data-engineering", "infrastructure"
+    pub tag: String,
+    /// Max companies to return (default 30)
+    pub limit: Option<usize>,
+    /// Filter by batch e.g. "S2026", "W2026", "W2025"
+    pub batch_filter: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct FormDParams {
+    /// Search query e.g. "seed", "Series A", company name, industry keyword
+    pub query: String,
+    /// Days back from today (default 90)
+    pub days_back: Option<u32>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct GdeltFundingParams {
+    /// GDELT query e.g. "raised seed funding site:sifted.eu", "\"Series A\" startup Singapore"
+    pub query: String,
+    /// Max articles (default 20, max 250)
+    pub max_results: Option<u32>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct FundSignalParams {
+    /// Days since Form D filing (None = unknown)
+    pub form_d_days_ago: Option<u32>,
+    /// Days since Crunchbase round (None = unknown)
+    pub crunchbase_days_ago: Option<u32>,
+    /// Number of open engineering roles from search_ats_jobs
+    pub open_eng_roles: Option<u32>,
+    /// How many YC batches old (0 = current, 1 = one batch ago)
+    pub yc_batches_old: Option<u32>,
+    /// Days since Product Hunt launch
+    pub ph_days_ago: Option<u32>,
+    /// Days since last GitHub commit in org
+    pub github_active_days: Option<u32>,
+    /// Current team size
+    pub team_size: Option<u32>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct UkCompanyParams {
+    /// Company name to search on Companies House e.g. "Pipekit Ltd"
+    pub company_name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct FrCompanyParams {
+    /// Company name to search on Pappers e.g. "Dataiku"
+    pub company_name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct RdapParams {
+    /// Domain to look up e.g. "pipekit.io", "velum-labs.com"
+    pub domain: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct AtsJobsParams {
+    /// Board slug — company name on the ATS e.g. "linear", "vercel", "supabase", "pipekit"
+    pub board_slug: String,
+    /// Force a specific ATS: "ashby", "greenhouse", "lever" — omit for auto-detect (Ashby → Greenhouse → Lever)
+    pub ats: Option<String>,
+    /// Only return remote-flagged roles (default false)
+    pub remote_only: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct VerifyEmailParams {
+    /// Email address to verify e.g. "founder@company.com"
+    pub email: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct FindEmailByNameParams {
+    /// First name of the person
+    pub first_name: String,
+    /// Last name of the person
+    pub last_name: String,
+    /// Company domain without protocol e.g. "pipekit.io"
+    pub domain: String,
 }
 
 #[tool_handler]
