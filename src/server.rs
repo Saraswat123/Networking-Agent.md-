@@ -337,6 +337,10 @@ impl NetworkingServer {
         Parameters(params): Parameters<FindEmailsParams>,
     ) -> String {
         if let Err(e) = self.compliance.rate_limiter.check("find_company_emails").await { return e; }
+        // Hunter.io free tier: 25 searches/month — enforce via persistent log
+        if let Err(e) = crate::db::check_monthly_quota(&self.db, "find_company_emails", 25, 30).await {
+            return format!("Quota: {e}");
+        }
         let t = self.compliance.audit.start();
         let result = match email_finder::find_emails(&self.http_client, &self.hunter_api_key, &params.domain, params.limit.unwrap_or(10)).await {
             Ok(result) => serde_json::to_string_pretty(&result).unwrap_or_else(|e| e.to_string()),
@@ -583,6 +587,10 @@ impl NetworkingServer {
         Parameters(params): Parameters<ApolloParams>,
     ) -> String {
         if let Err(e) = self.compliance.rate_limiter.check("search_apollo_people").await { return e; }
+        // Apollo free tier: 50 email-reveal credits/month — enforce via persistent log
+        if let Err(e) = crate::db::check_monthly_quota(&self.db, "search_apollo_people", 50, 30).await {
+            return format!("Quota: {e}");
+        }
         let t = self.compliance.audit.start();
         let titles: Vec<&str> = params.titles.iter().map(|s| s.as_str()).collect();
         let seniority: Vec<&str> = params.seniority.iter().map(|s| s.as_str()).collect();

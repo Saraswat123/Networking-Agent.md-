@@ -1,0 +1,25 @@
+[Unit]
+Description=Networking Agent MCP Server
+After=network.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/opt/networking-agent
+ExecStart=/opt/networking-agent/networking-agent
+Restart=on-failure
+RestartSec=5
+
+# API keys — set these in /etc/networking-agent.env or override per-user
+EnvironmentFile=-/etc/networking-agent.env
+EnvironmentFile=-%h/.config/networking-agent/env
+
+# Keep DB in user home by default; override with NETWORKING_DB env var
+Environment=NETWORKING_DB=%h/networking-agent.db
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=networking-agent
+
+[Install]
+WantedBy=multi-user.target

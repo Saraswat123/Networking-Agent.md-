@@ -1,0 +1,18 @@
+[Unit]
+Description=Networking Agent pipeline run (discovery + reply monitor)
+After=network.target
+
+[Service]
+Type=oneshot
+User=%i
+WorkingDirectory=/opt/networking-agent
+# 1. Check replies and update DB outreach_status
+ExecStart=python3 /opt/networking-agent/agents/reply_monitor.py
+# 2. Run daily job apply pipeline (Dir B)
+ExecStart=python3 /opt/networking-agent/agents/daily_apply.py --limit 5
+EnvironmentFile=-/etc/networking-agent.env
+EnvironmentFile=-%h/.config/networking-agent/env
+Environment=NETWORKING_DB=%h/networking-agent.db
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pipeline-loop

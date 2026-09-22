@@ -32,5 +32,10 @@ agents/jds/
 agents/sources/
 agents/profile.json
 agents/profile.json.bak
+agents/output/
 STRATEGY.md
 logs/
+drafts/
+
+# One-off batch send scripts (generated per campaign; not canonical)
+agents/send_*.py

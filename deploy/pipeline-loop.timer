@@ -1,0 +1,13 @@
+[Unit]
+Description=Run networking agent pipeline every 6 hours
+Requires=pipeline-loop.service
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=6h
+Unit=pipeline-loop.service
+# Run even if the previous run took longer than expected
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

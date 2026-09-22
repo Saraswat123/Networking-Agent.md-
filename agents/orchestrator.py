@@ -1,10 +1,18 @@
 """
-Phase 4 Orchestrator — full pipeline in one command.
+DEPRECATED — Phase 4 Python Orchestrator (pre-MCP)
 
-Discovery → Save to DB → Enrich → Generate Outreach
+This script was the standalone pipeline before the Rust MCP server existed.
+It duplicates logic now covered by the Rust MCP tools:
+  search_github_users → github::search_users
+  search_yc_companies → yc::search_yc_companies
+  save_prospect       → save_prospect (MCP tool + SQLite)
+  generate_outreach   → draft_proposal_email / draft_warm_email
 
-Calls same APIs as the Rust MCP tools (GitHub, YC, WebReveal, Hunter.io)
-but runs autonomously without requiring Claude as the MCP client.
+Canonical pipeline is now through the Rust MCP server (networking-agent binary).
+Run via Claude with CLAUDE.md workflow, or call MCP tools directly.
+
+This file is kept for reference only. Do not add features here.
+New automation → deploy/pipeline-loop.service (systemd) or agents/reply_monitor.py.
 """
 
 import json

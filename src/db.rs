@@ -144,3 +144,29 @@ pub async fn init_pool(db_path: &str) -> Result<SqlitePool> {
 
     Ok(pool)
 }
+
+/// Check whether a tool has exceeded its monthly call quota.
+/// Queries `tool_call_log` for calls in the last `days` days.
+/// Returns Ok(remaining) or Err(blocked message).
+pub async fn check_monthly_quota(
+    pool: &SqlitePool,
+    tool: &str,
+    monthly_limit: i64,
+    days: i64,
+) -> Result<i64> {
+    let used: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM tool_call_log WHERE tool_name = ? AND ts >= datetime('now', ? || ' days')"
+    )
+    .bind(tool)
+    .bind(format!("-{days}"))
+    .fetch_one(pool)
+    .await?;
+
+    if used >= monthly_limit {
+        anyhow::bail!(
+            "Monthly quota exceeded for '{}': {}/{} calls used in last {} days",
+            tool, used, monthly_limit, days
+        );
+    }
+    Ok(monthly_limit - used)
+}
