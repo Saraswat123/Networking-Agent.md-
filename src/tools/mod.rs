@@ -1,5 +1,6 @@
 pub mod apollo;
 pub mod ats_jobs;
+pub mod eu_jobs;
 pub mod clearbit;
 pub mod crunchbase;
 pub mod discovery;

@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
 use crate::compliance::ComplianceLayer;
-use crate::tools::{apollo, clearbit, crunchbase, discovery, email_finder, fit, github, hiring, jobs, platforms, producthunt, proposals, scorer, tech_stack, yc};
+use crate::tools::{apollo, clearbit, crunchbase, discovery, email_finder, eu_jobs, fit, github, hiring, jobs, platforms, producthunt, proposals, scorer, tech_stack, yc};
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct SearchUsersParams {
@@ -361,6 +361,25 @@ impl NetworkingServer {
             Err(e) => format!("Error: {}", e),
         };
         self.compliance.audit.log(&self.db, "search_jobs", tags, &result, t, &[]).await;
+        result
+    }
+
+    #[tool(description = "Search EU and APAC job boards. Regions: 'all', 'eu', 'de' (Germany), 'nl' (Netherlands), 'fr' (France), 'pl' (Poland), 'dk' (Denmark), 'se' (Sweden), 'es' (Spain), 'au' (Australia), 'nz' (New Zealand), 'sg' (Singapore), 'asia'. Also accepts named boards: 'justjoinit', 'otta', 'wearedevelopers', 'landing.jobs', 'talent.io', 'wttj', 'germantech', 'jobindex', 'devitjobs', 'technoempleo', 'getonbrd', 'demando'. Returns title, company, location, url, salary, region, source.")]
+    async fn search_eu_jobs(
+        &self,
+        Parameters(params): Parameters<EuJobsParams>,
+    ) -> String {
+        if let Err(e) = self.compliance.rate_limiter.check("search_eu_jobs").await { return e; }
+        let t = self.compliance.audit.start();
+        let query = params.query.as_deref().unwrap_or("");
+        let region = params.region.as_deref().unwrap_or("eu");
+        let limit = params.limit.unwrap_or(20);
+        let result = match eu_jobs::search_eu_jobs(&self.http_client, query, region, limit).await {
+            Ok(jobs) => serde_json::to_string_pretty(&jobs).unwrap_or_else(|e| e.to_string()),
+            Err(e) => format!("Error: {}", e),
+        };
+        let input = format!("query={query} region={region}");
+        self.compliance.audit.log(&self.db, "search_eu_jobs", &input, &result, t, &[]).await;
         result
     }
 
@@ -1875,6 +1894,18 @@ pub struct SearchJobsParams {
     /// Comma-separated tags e.g. "rust", "typescript,senior", "python,ml" — leave empty for all
     pub tags: Option<String>,
     /// Max results to return (default 20)
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct EuJobsParams {
+    /// Search query e.g. "rust engineer", "backend remote", "distributed systems"
+    pub query: Option<String>,
+    /// Region/board: 'all', 'eu', 'de', 'nl', 'fr', 'pl', 'dk', 'se', 'es', 'au', 'nz', 'sg', 'asia'
+    /// or named board: 'justjoinit', 'otta', 'wearedevelopers', 'landing.jobs', 'talent.io',
+    /// 'wttj', 'germantech', 'jobindex', 'devitjobs', 'technoempleo', 'getonbrd', 'demando'
+    pub region: Option<String>,
+    /// Max results (default 20)
     pub limit: Option<usize>,
 }
 

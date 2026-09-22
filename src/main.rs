@@ -10,11 +10,21 @@ use std::env;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let github_token = env::var("GITHUB_TOKEN").unwrap_or_default();
-    let hunter_api_key = env::var("HUNTER_API_KEY").unwrap_or_default();
+    // GITHUB_TOKEN required — 13 tools fail silently without it.
+    let github_token = env::var("GITHUB_TOKEN").unwrap_or_else(|_| {
+        eprintln!("[startup] WARNING: GITHUB_TOKEN not set — GitHub tools will return 401s");
+        String::new()
+    });
+    let hunter_api_key = env::var("HUNTER_API_KEY").unwrap_or_else(|_| {
+        eprintln!("[startup] INFO: HUNTER_API_KEY not set — email waterfall will skip Hunter");
+        String::new()
+    });
     let crunchbase_api_key = env::var("CRUNCHBASE_API_KEY").unwrap_or_default();
     let producthunt_api_token = env::var("PRODUCTHUNT_API_TOKEN").unwrap_or_default();
-    let apollo_api_key = env::var("APOLLO_API_KEY").unwrap_or_default();
+    let apollo_api_key = env::var("APOLLO_API_KEY").unwrap_or_else(|_| {
+        eprintln!("[startup] INFO: APOLLO_API_KEY not set — Apollo people search disabled");
+        String::new()
+    });
     let clearbit_api_key = env::var("CLEARBIT_API_KEY").unwrap_or_default();
     let sender_email = env::var("SENDER_EMAIL")
         .unwrap_or_else(|_| "saraswatdas94@gmail.com".to_string());

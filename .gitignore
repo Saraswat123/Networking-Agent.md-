@@ -30,5 +30,7 @@ agents/daily_apply_err.log
 agents/emails/
 agents/jds/
 agents/sources/
+agents/profile.json
 agents/profile.json.bak
+STRATEGY.md
 logs/
